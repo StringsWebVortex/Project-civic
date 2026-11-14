@@ -1,0 +1,12 @@
+firmware/build/
+firmware/esp32-dashboard/.pio/
+firmware/tools/__pycache__/
+firmware/tests/__pycache__/
+*.o
+*.map
+backups/
+.vscode/
+docs/reference/*.pdf
+firmware/tests/results/
+firmware/node_modules/
+.scratch/
