@@ -125,6 +125,9 @@ tbody td{padding:4px 8px;border-bottom:1px solid #21262d;white-space:nowrap}
   <a href="#controllers">▤ Controllers &amp; Bus</a>
   <a href="#diagnostics">⚙ Fault Codes &amp; Sensors</a>
   <a href="#operatingMode">⇄ Operating Mode</a>
+  <div class="nav-label">Settings</div>
+  <a href="#settings">⚙ Settings · Target device</a>
+  <a href="#canAbilities">⚡ bxCAN Abilities</a>
   <div class="nav-label">Data &amp; Tools</div>
   <a href="/log.csv">↓ Download Current Data</a>
   <a href="/log.csv?historical=1">◷ Historical Data (CSV)</a>
@@ -135,6 +138,7 @@ tbody td{padding:4px 8px;border-bottom:1px solid #21262d;white-space:nowrap}
 </nav>
 <div id="top"></div>
 <div class="page-head"><h1>Vehicle Telemetry Dashboard</h1><button id="globalModeToggle" type="button" onclick="toggleGlobalMode()">ENTER WRITE MODE</button></div>
+<div id="deviceBanner" style="display:none;margin:6px 0 9px;padding:9px 11px;border:1px solid #58a6ff;border-radius:7px;background:#0d2238;color:#cfe6ff;font-size:.78rem"></div>
 <div id="writeModeBanner">WRITE MODE ACTIVE · Both buses are full CAN nodes (bxCAN Normal, TJA1051 S low): TX, UDS, ECU scan, periodic, gateway and every write protocol may transmit. Press EXIT WRITE MODE to return every protocol to read-only. <b id="writeState"></b></div>
 <div id="statusBar">Connecting…</div>
 <div id="vehBar" style="margin:6px 0 10px;padding:8px 12px;border:1px solid #30363d;border-radius:8px;font-size:.85rem">Key: <b>—</b></div>
@@ -343,6 +347,15 @@ tbody td{padding:4px 8px;border-bottom:1px solid #21262d;white-space:nowrap}
 </div>
 
 <!-- ══ FULL WIDTH: Controllers & bus health ══ -->
+<div class="card full" id="settings">
+  <div class="card-head"><span class="card-title">Settings · Target device</span><span class="card-sub" id="devCurrent">—</span></div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+    <button class="btn btn-sm" onclick="devList(true)">Change target device</button>
+    <button class="btn btn-sm" onclick="devDetectNew()">Add / detect new device</button>
+  </div>
+  <table style="width:100%;font-size:.74rem"><thead><tr><th style="text-align:left">Device</th><th>F-CAN</th><th>B-CAN</th><th>IDs</th><th>Status</th><th></th></tr></thead>
+  <tbody id="devRows"><tr><td colspan="6" style="color:#8b949e">Press “Change target device” to list known devices.</td></tr></tbody></table>
+</div>
 <div class="card full" id="canAbilities">
   <div class="card-head"><span class="card-title">bxCAN Abilities</span><span class="card-sub">RM0090 · per controller</span></div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:.74rem;margin-bottom:8px">
@@ -1015,6 +1028,7 @@ function onDiag(t){
     if(ev==='PENDING') return;
   }
 
+  if(f[0]==='DEVICE'){ deviceLine(f); diagLog(t); return; }
   if(t.startsWith('STATUS,SYS,WRITE,')){ setMode(f[3]==='ON'?'w':'r'); diagLog(t); return; }
   if(f[0]==='STATUS' && (f[1]==='F'||f[1]==='B') && f[2]==='WRITE'){ const w=$('writeState'); if(w) w.textContent=f[1]+': '+f.slice(3).join(' '); diagLog(t); return; }
   if(f[0]==='STATUS' && (f[1]==='F'||f[1]==='B') && (f[2]==='OPTS'||f[2]==='ERRSTATE'||f[2]==='FILTER'||f[2]==='BUSOFF'||f[2]==='SLEEP'||f[2]==='WAKE')){ abilityLine(f); diagLog(t); return; }
@@ -1027,6 +1041,33 @@ function onDiag(t){
   if(t.startsWith('STATUS,ARMED,')){ armedBus='F'; armedLeft=parseInt(f[2],10)||0; showArm(); syncAutoPids(); diagLog(t); return; }
   if(t.startsWith('STATUS,DISARMED,')){ armedLeft=0; armedBus=''; showArm(); syncAutoPids(); diagLog(t); return; }
   diagLog(t);
+}
+
+/* ── connected device: detect / select / remember (board stores it) ── */
+let devItems=[], devTarget=null;
+function devCmd(x){ canCmd('DEVICE,'+x); }
+function devList(){ devItems=[]; devCmd('LIST'); }
+function devDetectNew(){ devCmd('DETECT'); }
+function devSelect(pid){ devCmd('SELECT,'+pid); }
+function devBanner(html){ const b=$('deviceBanner'); b.innerHTML=html; b.style.display=html?'block':'none'; }
+function devAdd(){ const n=($('devNewName').value||'').trim(); if(!n||/[",]/.test(n)){ diagLog('Device name must be non-empty without commas or quotes.'); return; } devCmd('ADD,'+n); }
+function deviceLine(f){
+  const k=f[1];
+  if(k==='TARGET'){ devTarget={pid:f[2],name:f.slice(3).join(',')}; $('devCurrent').textContent='Target: '+devTarget.name; devBanner(''); }
+  else if(k==='DETECTING'||k==='OBSERVING'){ devTarget=null; $('devCurrent').textContent='Detecting connected network…'; devBanner('Identifying the connected CAN network…'); }
+  else if(k==='DETECTED'){ const pid=f[2], name=f.slice(3,-1).join(','), sc=(parseInt(f[f.length-1],10)/10).toFixed(0);
+    devBanner('Detected: <b>'+esc(name)+'</b> ('+sc+'% match) <button class="btn btn-sm" onclick="devSelect('+parseInt(pid,10)+')">Select this device</button>'); }
+  else if(k==='NEW'){ const sug=f.slice(2,-1).join(',');
+    devBanner('New network: <b>'+esc(sug)+'</b> · Name <input id="devNewName" value="'+esc(sug)+'" maxlength="39" style="width:240px"> <button class="btn btn-sm" onclick="devAdd()">Add &amp; select</button>'); }
+  else if(k==='ADDED'){ devSelect(parseInt(f[2],10)); }
+  else if(k==='EXISTS'){ const name=f.slice(3).join(',');
+    if(confirm('Device already added: '+name+'\nDo you want to observe it?')) devSelect(parseInt(f[2],10)); }
+  else if(k==='ITEM'){ devItems.push(f); }
+  else if(k==='LIST'&&f[2]==='END'){
+    $('devRows').innerHTML=devItems.map(x=>'<tr><td>'+esc(x[3])+'</td><td>'+(x[4]==='0'?'—':(x[4]/1000)+'k')+'</td><td>'+(x[5]==='0'?'—':(x[5]/1000)+'k')+'</td><td>'+x[6]+'</td><td>'+x[7]+'</td><td>'+
+      (devTarget&&devTarget.pid===x[2]?'<b>current</b>':'<button class="btn btn-sm" onclick="devSelect('+parseInt(x[2],10)+')">Select</button>')+'</td></tr>').join('');
+  }
+  else if(k==='ERR'){ diagLog('Device: '+f.slice(2).join(',')); }
 }
 
 /* ── bxCAN abilities panel ── */
@@ -1697,6 +1738,7 @@ function connect(){
     authOk=true;                 /* USB link to the host is the only gate */
     gearLedToggle();             /* re-apply the gear-LED source on every connect */
     canCmd('WRITE,?');           /* follow the board's write/read-only state */
+    devCmd('STATUS');            /* boot target / detection state */
     abRefresh();
   };
   sock.onclose=()=>{ $('statusBar').textContent='Disconnected — reconnecting…'; setTimeout(connect,1500); };

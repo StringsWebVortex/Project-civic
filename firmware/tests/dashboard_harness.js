@@ -323,6 +323,26 @@ function fail(msg) { console.log('FAIL: ' + msg); process.exitCode = 1; }
   if (!ab.some(l => l.startsWith('FILTER,B,20,M,32,1,'))) fail('filter program not sent: ' + JSON.stringify(ab));
   await page.evaluate(() => __diag('STATUS,B,OPTS,ABOM=1,AWUM=0,NART=1,RFLM=0,TXFP=0,TTCM=1,DBF=1,SJW=3'));
   if (!(await page.locator('#abNART').isChecked()) || (await page.inputValue('#abSJW')) !== '3') fail('OPTS status not reflected in panel');
+  // Connected device: detected banner -> select; NEW -> add; EXISTS -> observe prompt; settings list.
+  await page.evaluate(() => { window.__sent.length = 0; __diag('DEVICE,DETECTED,1,Honda Civic 2013 9th gen R18Z1,950'); });
+  if (!(await page.textContent('#deviceBanner')).includes('Honda Civic 2013')) fail('detected device name not shown');
+  await page.evaluate(() => document.querySelector('#deviceBanner button').click());
+  let dv = await page.evaluate(() => window.__sent.filter(x => x.op === 'can').map(x => x.line));
+  if (!dv.includes('DEVICE,SELECT,1')) fail('select did not send DEVICE,SELECT,1: ' + JSON.stringify(dv));
+  await page.evaluate(() => __diag('DEVICE,TARGET,1,Honda Civic 2013 9th gen R18Z1'));
+  if (await page.locator('#deviceBanner').isVisible()) fail('banner still shown after target selected');
+  await page.evaluate(() => { window.__sent.length = 0; __diag('DEVICE,NEW,Unknown network F250k/B0k 5 IDs,0'); });
+  await page.evaluate(() => { document.getElementById('devNewName').value = 'Bench rig'; });
+  await page.evaluate(() => document.querySelector('#deviceBanner button').click());
+  dv = await page.evaluate(() => window.__sent.filter(x => x.op === 'can').map(x => x.line));
+  if (!dv.includes('DEVICE,ADD,Bench rig')) fail('add did not send DEVICE,ADD: ' + JSON.stringify(dv));
+  await page.evaluate(() => { window.__sent.length = 0; window.confirm = () => true; __diag('DEVICE,EXISTS,2,Bench rig'); });
+  dv = await page.evaluate(() => window.__sent.filter(x => x.op === 'can').map(x => x.line));
+  if (!dv.includes('DEVICE,SELECT,2')) fail('already-added prompt did not offer observe/select');
+  await page.evaluate(() => { devList(); __diag('DEVICE,ITEM,1,Honda Civic 2013 9th gen R18Z1,500000,0,36,VERIFIED'); __diag('DEVICE,ITEM,2,Bench rig,250000,0,5,VERIFIED'); __diag('DEVICE,LIST,END'); });
+  const devRowCount = await page.locator('#devRows tr').count();
+  if (devRowCount !== 2) fail('settings device list has ' + devRowCount + ' rows');
+  if (await page.locator('#sideNav a[href="#settings"]').count() !== 1) fail('Settings menu missing from side bar');
   await browser.close();
   if (!process.exitCode) console.log('dashboard harness: all checks passed');
 })().catch(e => { console.log('FAIL: ' + e.message); process.exit(1); });

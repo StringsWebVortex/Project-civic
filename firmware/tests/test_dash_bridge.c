@@ -178,6 +178,7 @@ static void test_ws_commands(void)
     clear(); ws("{\"op\":\"write\",\"on\":false}");             CHECK(has_cmd("WRITE,OFF"), "write off");
     clear(); ws("{\"op\":\"can\",\"line\":\"OPT,F,NART,on\"}");  CHECK(has_cmd("OPT,F,NART,on"), "can opt");
     clear(); ws("{\"op\":\"can\",\"line\":\"FILTER,B,20,M,32,1,0,0\"}"); CHECK(has_cmd("FILTER,B,20,M,32,1,0,0"), "can filter");
+    clear(); ws("{\"op\":\"can\",\"line\":\"DEVICE,SELECT,2\"}"); CHECK(has_cmd("DEVICE,SELECT,2"), "can device");
     clear(); ws("{\"op\":\"can\",\"line\":\"START\"}");        CHECK(ncmd == 0, "can rejects non-ability verbs");
     clear(); ws("{\"op\":\"periodic\",\"slot\":2,\"bus\":\"F\",\"format\":\"S\",\"id\":\"7df\",\"dlc\":3,\"data\":\"02010c\",\"period\":100}");
     CHECK(has_cmd("PERIODIC,2,F,S,7DF,3,02010C,100"), "periodic");

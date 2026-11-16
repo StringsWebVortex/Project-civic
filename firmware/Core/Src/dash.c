@@ -1009,7 +1009,7 @@ void dash_ws_text(uint8_t num, char *payload, size_t length)
     if (strcmp(op, "can") == 0) {
         /* bxCAN ability command line; only these verbs pass through. */
         static const char *const ok[] = { "OPT,", "FILTER,", "CAN2SB,", "ERRSTATE,",
-                                          "BUSOFF,", "SLEEP,", "WAKE,", "WRITE," };
+                                          "BUSOFF,", "SLEEP,", "WAKE,", "WRITE,", "DEVICE," };
         char line[96]; jstr("line", "", line, sizeof line);
         for (size_t k = 0; k < sizeof ok / sizeof ok[0]; k++)
             if (strncmp(line, ok[k], strlen(ok[k])) == 0) { stm32_print(line); return; }
