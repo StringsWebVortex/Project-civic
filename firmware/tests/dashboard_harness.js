@@ -350,6 +350,21 @@ function fail(msg) { console.log('FAIL: ' + msg); process.exitCode = 1; }
   if ((await page.inputValue('#mailPass')) !== '') fail('app password left in the page');
   await page.evaluate(() => __diag('MAIL,PENDING'));
   if (!(await page.textContent('#mailState')).includes('PENDING')) fail('mail state not shown');
+  // Boot view: detection screen hides the dashboard; a selected target boots into its own view.
+  await page.evaluate(() => __diag('DEVICE,DETECTING'));
+  if (!(await page.evaluate(() => document.body.classList.contains('detecting')))) fail('detection mode not shown');
+  if (await page.locator('#canAnalyzer').isVisible()) fail('dashboard visible during detection');
+  if (!(await page.locator('#settings').isVisible())) fail('settings must stay reachable during detection');
+  await page.evaluate(() => __diag('DEVICE,TARGET,1,Honda Civic 2013 9th gen R18Z1'));
+  if (await page.evaluate(() => document.body.classList.contains('detecting'))) fail('target selected but still detecting');
+  if (!(await page.textContent('#pageTitle')).includes('Honda Civic 2013')) fail('device view title missing');
+  // Signal learning table: full list, then a live change.
+  await page.evaluate(() => { __deliver({ type: 'sigstates', reset: true, list: [['158','ENGINE_DATA','CHECKED',40,0,0,8],['17C','POWERTRAIN_DATA','SEED',0,0,0,0]] });
+                              __deliver({ type: 'sigstate', id: '158', name: 'ENGINE_DATA', state: 'VERIFIED', frames: 60, match: 10, miss: 0, dlc: 8 }); });
+  const sl = await page.textContent('#slRows');
+  if (!sl.includes('ENGINE_DATA') || !sl.includes('VERIFIED') || !sl.includes('POWERTRAIN_DATA')) fail('signal learning table: ' + sl);
+  if (!(await page.textContent('#slSum')).startsWith('1 verified')) fail('signal learning summary');
+  if (await page.locator('#sideNav a[href="#sigLearn"]').count() !== 1) fail('Signal Learning missing from side bar');
   await browser.close();
   if (!process.exitCode) console.log('dashboard harness: all checks passed');
 })().catch(e => { console.log('FAIL: ' + e.message); process.exit(1); });

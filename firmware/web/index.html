@@ -128,6 +128,7 @@ body.detecting #deviceBanner{font-size:1.05rem;padding:22px;text-align:center;ma
   <a href="#diagnostics">⚙ Fault Codes &amp; Sensors</a>
   <a href="#operatingMode">⇄ Operating Mode</a>
   <div class="nav-label">Settings</div>
+  <a href="#sigLearn">✓ Signal Learning</a>
   <a href="#settings">⚙ Settings · Target device</a>
   <a href="#canAbilities">⚡ bxCAN Abilities</a>
   <div class="nav-label">Data &amp; Tools</div>
@@ -349,6 +350,17 @@ body.detecting #deviceBanner{font-size:1.05rem;padding:22px;text-align:center;ma
 </div>
 
 <!-- ══ FULL WIDTH: Controllers & bus health ══ -->
+<div class="card full" id="sigLearn">
+  <div class="card-head">
+    <span class="card-title">Signal Learning — DBC definitions checked on this car</span>
+    <span class="card-sub" id="slSum">waiting…</span>
+  </div>
+  <div style="font-size:.68rem;color:#8b949e;margin:2px 0 6px">SEED = community DBC, not seen yet · CHECKED = seen with the DBC length ·
+    VERIFIED = agrees with the official OBD-II value (PID 0C rpm / 0D speed) · CONFLICT = length or values disagree — do not trust.</div>
+  <div class="can-wrap" style="max-height:320px;overflow:auto"><table><thead><tr><th>ID</th><th>Message</th><th>State</th><th>Frames</th><th>Agree</th><th>Disagree</th><th>DLC seen</th></tr></thead>
+  <tbody id="slRows"><tr><td colspan="7" style="color:#8b949e">No data yet.</td></tr></tbody></table></div>
+</div>
+
 <div class="card full" id="settings">
   <div class="card-head"><span class="card-title">Settings · Target device</span><span class="card-sub" id="devCurrent">—</span></div>
   <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
@@ -1064,6 +1076,16 @@ function devSelect(pid){ devCmd('SELECT,'+pid); }
 /* Boot view: a saved target boots straight into that device's dashboard;
    with no saved target the page stays on the detection screen until the
    user selects the detected device (board is the authority, every boot). */
+/* Signal learning table (board-side grades, journaled; never deleted). */
+let slRows={};
+const SL_COLOR={SEED:'#8b949e',CHECKED:'#58a6ff',VERIFIED:'#3fb950',CONFLICT:'#f85149'};
+function drawSl(){
+  const rows=Object.values(slRows).sort((a,b)=>parseInt(a[0],16)-parseInt(b[0],16));
+  const c={SEED:0,CHECKED:0,VERIFIED:0,CONFLICT:0}; rows.forEach(r=>{ if(c[r[2]]!==undefined) c[r[2]]++; });
+  $('slSum').textContent=c.VERIFIED+' verified · '+c.CHECKED+' checked · '+c.CONFLICT+' conflict · '+c.SEED+' seed';
+  $('slRows').innerHTML=rows.length?rows.map(r=>'<tr><td>'+esc(r[0])+'</td><td>'+esc(r[1])+'</td><td style="font-weight:700;color:'+(SL_COLOR[r[2]]||'#8b949e')+'">'+esc(r[2])+
+    '</td><td>'+(r[3]|0)+'</td><td>'+(r[4]|0)+'</td><td>'+(r[5]|0)+'</td><td>'+(r[3]?(r[6]|0):'–')+'</td></tr>').join(''):'<tr><td colspan="7" style="color:#8b949e">No data yet.</td></tr>';
+}
 function devView(name){
   document.body.classList.toggle('detecting',!name);
   $('pageTitle').textContent=name?name+' — Dashboard':'Detecting connected device…';
@@ -1629,6 +1651,8 @@ function onEcu(t){
 
 /* ── message handler ── */
 function onMsg(m){
+  if(m.type==='sigstates'){ if(m.reset) slRows={}; (m.list||[]).forEach(r=>{ slRows[r[0]]=r; }); drawSl(); return; }
+  if(m.type==='sigstate'){ slRows[m.id]=[m.id,m.name,m.state,m.frames,m.match,m.miss,m.dlc]; drawSl(); return; }
   if(m.type==='events_reset'){ eventRows.length=0; drawEvents(); return; }
   if(m.type==='event'){
     const i=eventRows.findIndex(e=>e.id===m.id);

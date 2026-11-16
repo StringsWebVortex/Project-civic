@@ -16,6 +16,7 @@
 #include "dash_store.h"
 #include "device_id.h"
 #include "log_mail.h"
+#include "sig_learn.h"
 #include "flash_store.h"
 #include "gvret.h"
 #include "can_dbc.h"
@@ -324,6 +325,7 @@ static bool rewriteEvents(void)
 {
     if (!dev_rewrite(dev_global(), evst_append)) return false;   /* identity data first */
     if (!mail_rewrite(mail_global(), evst_append)) return false;
+    if (!sl_rewrite(sl_global(), evst_append)) return false;    /* learned signal grades */
     for (size_t i = 0; i < eventCount; ++i)
         if (!evst_append(EV_REC_EVENT, eventStore[i].id, &eventStore[i], (uint16_t)offsetof(DtcEvent, lastReportedMs)))
             return false;
@@ -340,6 +342,7 @@ static void replayRecord(uint8_t type, uint32_t id, const uint8_t *d, uint16_t l
 {
     dev_replay(dev_global(), type, id, d, len);   /* device profiles + target */
     mail_replay(mail_global(), type, id, d, len); /* mail settings + last sent */
+    (void)sl_replay(sl_global(), type, id, d, len); /* learned signal grades */
     if (type == EV_REC_EVENT && len == offsetof(DtcEvent, lastReportedMs)) {
         DtcEvent *e = findEvent(id);
         if (!e) { if (eventCount >= EVENT_MAX) return; e = &eventStore[eventCount++]; }
@@ -838,6 +841,7 @@ static void parseLine(const char *raw, int len)
         const float val = (float)atof(csvField(raw, 4, f3, sizeof f3));
         csvField(raw, 2, lbl, sizeof lbl); csvField(raw, 3, unt, sizeof unt);
         snapPid(pid, val);
+        sl_on_obd(sl_global(), (uint8_t)strtoul(pid, NULL, 16), val, millis());   /* learn-mode reference */
         static char pidbuf[256];
         const int pn = snprintf(pidbuf, sizeof pidbuf, "{\"type\":\"pid\",\"pid\":\"%s\",\"label\":\"%s\","
                                 "\"unit\":\"%s\",\"value\":%.4f}", pid, lbl, unt, (double)val);
@@ -857,10 +861,11 @@ static void parseLine(const char *raw, int len)
         framesSeen++;
         const uint32_t idv = (uint32_t)strtoul(id, NULL, 16);
         frameTableUpdate(idv, ext, (uint8_t)busN, (uint8_t)dlc, rtr ? "" : pay);
+        uint8_t d2[8] = {0};
+        if (!rtr) for (int i = 0; i < dlc && (size_t)(i * 2 + 1) < strlen(pay); i++) {
+            char t[3] = { pay[i * 2], pay[i * 2 + 1], 0 }; d2[i] = (uint8_t)strtoul(t, NULL, 16); }
+        if (!rtr) sl_on_frame(sl_global(), (uint8_t)busN, idv, ext, (uint8_t)dlc, d2, millis());
         if (gvretCli) {
-            uint8_t d2[8] = {0};
-            if (!rtr) for (int i = 0; i < dlc && (size_t)(i * 2 + 1) < strlen(pay); i++) {
-                char t[3] = { pay[i * 2], pay[i * 2 + 1], 0 }; d2[i] = (uint8_t)strtoul(t, NULL, 16); }
             uint8_t gb[GVRET_MAX_FRAME_BYTES];
             const size_t gn = gvret_encode_frame(gb, sizeof gb, (uint8_t)busN, idv, ext, rtr, (uint8_t)dlc, d2,
                                                  (uint32_t)strtoul(ts, NULL, 10));
@@ -957,10 +962,46 @@ static void wsReply(uint8_t num, const char *type, const char *msg)
 
 static bool wsAuthed[WS_MAX_CLIENTS];
 
+/* Learn mode: grades of every DBC message, [id, name, state, frames, match,
+ * miss, dlc], in chunks through the shared JSON buffer ("reset" on the first). */
+static void sigStatesSend(uint8_t num)
+{
+    const sl_t *sl = sl_global();
+    uint8_t i = 0;
+    do {
+        size_t n = (size_t)snprintf(s_jbuf, sizeof s_jbuf, "{\"type\":\"sigstates\",\"reset\":%s,\"list\":[",
+                                    i == 0 ? "true" : "false");
+        for (bool first = true; i < sl->n && n + 100u < sizeof s_jbuf; i++, first = false) {
+            const sl_entry_t *e = &sl->e[i];
+            n += (size_t)snprintf(s_jbuf + n, sizeof s_jbuf - n, "%s[\"%03X\",\"%s\",\"%s\",%u,%u,%u,%u]", first ? "" : ",",
+                                  (unsigned)can_dbc_msgs[i].id, can_dbc_msgs[i].name, sl_state_name((sl_state_t)e->state),
+                                  (unsigned)e->frames, (unsigned)e->match, (unsigned)e->miss, (unsigned)e->dlc_seen);
+        }
+        n += (size_t)snprintf(s_jbuf + n, sizeof s_jbuf - n, "]}");
+        if (!ws_send_txt_ok(num, s_jbuf, n)) return;
+    } while (i < sl->n);
+}
+
+static void sigLearnService(void)
+{
+    uint8_t i;
+    sl_t *sl = sl_global();
+    while (sl_take_change(sl, &i)) {
+        if (logFsOk) (void)sl_persist(sl, i, evst_append);
+        const sl_entry_t *e = &sl->e[i];
+        char b[200];
+        const int n = snprintf(b, sizeof b, "{\"type\":\"sigstate\",\"id\":\"%03X\",\"name\":\"%s\",\"state\":\"%s\","
+                               "\"frames\":%u,\"match\":%u,\"miss\":%u,\"dlc\":%u}", (unsigned)can_dbc_msgs[i].id,
+                               can_dbc_msgs[i].name, sl_state_name((sl_state_t)e->state), (unsigned)e->frames,
+                               (unsigned)e->match, (unsigned)e->miss, (unsigned)e->dlc_seen);
+        if (n > 0 && n < (int)sizeof b) ws_broadcast_txt(b, (size_t)n);
+    }
+}
+
 void dash_ws_connected(uint8_t num)
 {
     if (num >= WS_MAX_CLIENTS) return;
-    wsAuthed[num] = true; emitStatus(); sendAllEvents(num);
+    wsAuthed[num] = true; emitStatus(); sendAllEvents(num); sigStatesSend(num);
 }
 
 void dash_ws_disconnected(uint8_t num)
@@ -988,6 +1029,7 @@ void dash_ws_text(uint8_t num, char *payload, size_t length)
     char buf[260];
 
     if (strcmp(op, "events_get") == 0) { sendAllEvents(num); return; }
+    if (strcmp(op, "sigstates") == 0) { sigStatesSend(num); return; }
     if (strcmp(op, "event_seen") == 0) {
         const long idv = jint("id", 0);
         if (idv <= 0 || !markEventSeen((uint32_t)idv)) wsReply(num, "diag", "EVENT,ERR,NOT_FOUND_OR_SAVE_FAILED");
@@ -1346,6 +1388,7 @@ bool dash_init(dash_cmd_fn cmd, can_capture_queue_t *q_fcan, can_capture_queue_t
     RCC->AHB2ENR |= RCC_AHB2ENR_RNGEN; (void)RCC->AHB2ENR; RNG->CR |= RNG_CR_RNGEN;
     randomSecret(wsToken, 24);
     for (unsigned i = 0; i < WS_MAX_CLIENTS; i++) evCursor[i] = -2;
+    sl_init(sl_global());                                        /* before the journal replay */
     logFsOk = logst_init() && evst_init(replayRecord, rewriteEvents, snapLive);
     if (logFsOk) loadEvents();
     bool ok = web_server_init();
@@ -1361,6 +1404,7 @@ void dash_poll(void)
     decBatchFlush();
     logService();
     eventsPump();
+    sigLearnService();
     if (gvretCli) tcp_output(gvretCli);
     static uint32_t last; const uint32_t now = millis();
     if (now - last >= 1000u) { last = now; emitStatus(); }

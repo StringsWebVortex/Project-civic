@@ -454,6 +454,29 @@ static void test_upload_paths(void)
     CHECK(http_status == 200 && strstr(http_body, "STM32 flashed 8192 bytes"), "valid image accepted");
 }
 
+static void test_signal_learning(void)
+{
+    /* OBD RPM 1500 and ENGINE_DATA (0x158) frames carrying 1500 rpm: CHECKED then VERIFIED */
+    clear();
+    for (int t = 0; t < 25; t++) {
+        dash_on_line("PID,0C,RPM,rpm,1500\r\n");
+        dash_on_line("123,STD,158,8,0,000005DC00000000,0\n");
+        tick(50);
+    }
+    CHECK(msg_contains("\"type\":\"sigstate\",\"id\":\"158\",\"name\":\"ENGINE_DATA\",\"state\":\"VERIFIED\""),
+          "learn mode verifies ENGINE_DATA against OBD RPM");
+    dash_on_line("124,STD,17C,4,0,00000000,0\n"); tick(50);
+    CHECK(msg_contains("\"id\":\"17C\",\"name\":\"POWERTRAIN_DATA\",\"state\":\"CONFLICT\""), "DLC mismatch reported as CONFLICT");
+    /* grades survive a reboot and are sent in chunks to a new client */
+    clear();
+    CHECK(dash_init(cmd_cb, NULL, NULL), "re-init");
+    dash_ws_connected(0);
+    CHECK(msg_contains("\"type\":\"sigstates\",\"reset\":true") && msg_contains("[\"158\",\"ENGINE_DATA\",\"VERIFIED\"") &&
+          msg_contains("[\"516\",\"ODOMETER\",\"SEED\""), "grades replayed and every DBC message listed");
+    clear(); ws("{\"op\":\"sigstates\"}");
+    CHECK(msg_contains("[\"17C\",\"POWERTRAIN_DATA\",\"CONFLICT\""), "sigstates on request");
+}
+
 int main(void)
 {
     fake_flash_reset();
@@ -472,6 +495,7 @@ int main(void)
     test_gvret_and_observer();
     test_mail_http();
     test_event_capacity_and_compaction();
+    test_signal_learning();
     test_mail_at_70_percent();
     test_upload_paths();             /* last: a valid image schedules the apply/reset */
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
