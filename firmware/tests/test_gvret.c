@@ -377,6 +377,14 @@ static void test_encode_other_replies(void)
         0x00, 0x00, 0x00, 0x00, 0x00    /* bus1 disabled, 0 */
     };
     CHECK(n == 12u && bytes_eq(out, cp, 12u), "canbus params bytes");
+
+    n = gvret_encode_canbus_params_lo(out, sizeof out, true, true, 500000u, true, false, 125000u);
+    const uint8_t cl[12] = {
+        0xF1, 0x06,
+        0x11, 0x20, 0xA1, 0x07, 0x00,   /* bus0 enabled + listen-only, 500000 */
+        0x01, 0x48, 0xE8, 0x01, 0x00    /* bus1 enabled, 125000 */
+    };
+    CHECK(n == 12u && bytes_eq(out, cl, 12u), "canbus params listen-only bytes");
 }
 
 /* --- round trip: decode a built frame, re-encode in device->host stream --- */

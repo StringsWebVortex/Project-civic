@@ -542,12 +542,160 @@ static void start_crank_can(void)
 static bool veh_key_on(void);
 static bool veh_parked(void);
 
+/* ── write mode: one switch for every transmitting protocol ───────────────
+ * WRITE,ON keeps both buses armed (bxCAN Normal + TJA1051 S LOW) until
+ * WRITE,OFF; read-only (SILM + S HIGH) is the boot default. */
+static bool write_mode;
+static uint32_t write_retry_ms;
+static void write_service(void)
+{
+    if (!write_mode) return;
+    for (uint32_t i = 0u; i < 2u; i++) {
+        can_ctrl_t *c = &s_can[i];
+        if (c->tx_armed) {
+            c->tx_armed_until_ms = system_millis + TX_ARM_MAX_SECONDS * 1000u;
+            if (c->tx_armed_until_ms == 0u) c->tx_armed_until_ms = 1u;
+        } else if (c->can_locked && veh_key_on() &&
+                   (uint32_t)(system_millis - write_retry_ms) >= 1000u) {
+            write_retry_ms = system_millis;
+            const char *err = can_hw_tx_arm(c, TX_ARM_MAX_SECONDS, system_millis, clock_ok);
+            char s[56];
+            if (err) (void)snprintf(s, sizeof s, "STATUS,%s,WRITE,WAIT,%s\r\n", c->cfg->label, err);
+            else     (void)snprintf(s, sizeof s, "STATUS,%s,ARMED,WRITE\r\n", c->cfg->label);
+            emit(s);
+        }
+    }
+}
+
+static void report_opts(const can_ctrl_t *c)
+{
+    const can_opts_t *o = &c->opts;
+    char s[112];
+    (void)snprintf(s, sizeof s, "STATUS,%s,OPTS,ABOM=%u,AWUM=%u,NART=%u,RFLM=%u,TXFP=%u,TTCM=%u,DBF=%u,SJW=%u\r\n",
+                   c->cfg->label, o->abom, o->awum, o->nart, o->rflm, o->txfp, o->ttcm, o->dbf, o->sjw);
+    emit(s);
+}
+
+static void report_err(const can_ctrl_t *c)
+{
+    const uint32_t esr = c->cfg->can->ESR;
+    char s[112];
+    (void)snprintf(s, sizeof s, "STATUS,%s,ERRSTATE,%s,TEC=%lu,REC=%lu,LEC=%s,FOVR0=%lu,FOVR1=%lu,WAKE=%lu\r\n",
+                   c->cfg->label, can_error_state(esr), (unsigned long)((esr >> 16) & 0xFFu),
+                   (unsigned long)(esr >> 24), can_lec_name((esr >> 4) & 7u),
+                   (unsigned long)c->fovr_count[0], (unsigned long)c->fovr_count[1],
+                   (unsigned long)c->wakeups);
+    emit(s);
+}
+
+/* bxCAN ability commands. Returns true when cmd was handled. */
+static bool can_ability_command(const char *cmd, char **save)
+{
+    if (strcmp(cmd, "WRITE") == 0) {
+        char *a = strtok_r(NULL, ",", save);
+        if (a && strcmp(a, "ON") == 0) {
+            write_mode = true; write_retry_ms = system_millis - 1000u;
+            emit("STATUS,SYS,WRITE,ON\r\n");
+            write_service();
+        } else if (a && strcmp(a, "OFF") == 0) {
+            write_mode = false;
+            for (uint32_t i = 0u; i < 2u; i++) if (s_can[i].tx_armed) disarm(&s_can[i], "WRITE_OFF");
+            emit("STATUS,SYS,WRITE,OFF\r\n");
+        } else if (a && strcmp(a, "?") == 0) {
+            emit(write_mode ? "STATUS,SYS,WRITE,ON\r\n" : "STATUS,SYS,WRITE,OFF\r\n");
+        } else emit("STATUS,ERR,BAD_WRITE\r\n");
+        return true;
+    }
+    if (strcmp(cmd, "OPT") == 0) {   /* OPT,<bus>[,<NAME>,<value>] */
+        can_ctrl_t *c = sel_bus(strtok_r(NULL, ",", save));
+        char *n = strtok_r(NULL, ",", save), *v = strtok_r(NULL, ",", save);
+        if (!c) { emit("STATUS,ERR,BAD_OPT\r\n"); return true; }
+        if (n) {
+            can_opts_t o = c->opts;
+            if (!v || !can_opts_set(&o, n, v)) { emit("STATUS,ERR,BAD_OPT\r\n"); return true; }
+            c->opts = o;
+            if (c->current_bitrate && !can_hw_apply_opts(c)) {
+                char s[48]; (void)snprintf(s, sizeof s, "STATUS,%s,ERR,OPT_APPLY\r\n", c->cfg->label); emit(s);
+                return true;
+            }
+        }
+        report_opts(c);
+        return true;
+    }
+    if (strcmp(cmd, "FILTER") == 0) {
+        /* FILTER,<bus>,<bank>,<M|L>,<32|16>,<fifo 0|1>,<fr1 hex>,<fr2 hex>
+         * FILTER,<bus>,<bank>,OFF     FILTER,<bus>,DEFAULT */
+        can_ctrl_t *c = sel_bus(strtok_r(NULL, ",", save));
+        char *b = strtok_r(NULL, ",", save);
+        if (!c || !b) { emit("STATUS,ERR,BAD_FILTER\r\n"); return true; }
+        if (strcmp(b, "DEFAULT") == 0) {
+            can_filter_regs_t r; const uint8_t fb = c->cfg->filter_bank;
+            can_filter_spec_t sf = can_filter_accept_format(fb, false, false);
+            bool ok = can_filter_compile(&sf, &r) && can_hw_filter_program(c, &r);
+            sf = can_filter_accept_format((uint8_t)(fb + 1u), true, true);
+            ok = ok && can_filter_compile(&sf, &r) && can_hw_filter_program(c, &r);
+            char s[48]; (void)snprintf(s, sizeof s, "STATUS,%s,FILTER,DEFAULT,%s\r\n", c->cfg->label, ok ? "OK" : "ERR"); emit(s);
+            return true;
+        }
+        uint32_t bank;
+        if (!parse_u32(b, 10, 27u, &bank)) { emit("STATUS,ERR,BAD_FILTER\r\n"); return true; }
+        char *m = strtok_r(NULL, ",", save);
+        if (m && strcmp(m, "OFF") == 0) {
+            const bool ok = can_hw_filter_disable(c, (uint8_t)bank);
+            char s[48]; (void)snprintf(s, sizeof s, "STATUS,%s,FILTER,%lu,%s\r\n", c->cfg->label, (unsigned long)bank, ok ? "OFF" : "ERR"); emit(s);
+            return true;
+        }
+        char *sc = strtok_r(NULL, ",", save), *ff = strtok_r(NULL, ",", save),
+             *r1 = strtok_r(NULL, ",", save), *r2 = strtok_r(NULL, ",", save);
+        uint32_t fifo, fr1, fr2;
+        if (!m || !sc || (strcmp(m, "M") && strcmp(m, "L")) || (strcmp(sc, "32") && strcmp(sc, "16")) ||
+            !parse_u32(ff, 10, 1u, &fifo) || !parse_u32(r1, 16, 0xFFFFFFFFu, &fr1) ||
+            !parse_u32(r2, 16, 0xFFFFFFFFu, &fr2)) { emit("STATUS,ERR,BAD_FILTER\r\n"); return true; }
+        can_filter_regs_t r = { .bank = (uint8_t)bank, .fr1 = fr1, .fr2 = fr2,
+                                .mask_mode = m[0] == 'M', .scale32 = sc[0] == '3',
+                                .fifo1 = fifo == 1u, .active = true };
+        const bool ok = can_hw_filter_program(c, &r);
+        char s[48]; (void)snprintf(s, sizeof s, "STATUS,%s,FILTER,%lu,%s\r\n", c->cfg->label, (unsigned long)bank, ok ? "OK" : "NOT_OWNED"); emit(s);
+        return true;
+    }
+    if (strcmp(cmd, "CAN2SB") == 0) {
+        uint32_t sb; char *a = strtok_r(NULL, ",", save);
+        if (a && strcmp(a, "?") == 0) sb = can_hw_can2sb();
+        else if (!parse_u32(a, 10, 27u, &sb) || !can_hw_set_can2sb((uint8_t)sb)) { emit("STATUS,ERR,BAD_CAN2SB\r\n"); return true; }
+        char s[40]; (void)snprintf(s, sizeof s, "STATUS,SYS,CAN2SB,%lu\r\n", (unsigned long)sb); emit(s);
+        return true;
+    }
+    if (strcmp(cmd, "ERRSTATE") == 0) {
+        can_ctrl_t *c = sel_bus(strtok_r(NULL, ",", save));
+        if (c) report_err(c); else emit("STATUS,ERR,BAD_BUS\r\n");
+        return true;
+    }
+    if (strcmp(cmd, "BUSOFF") == 0) {   /* BUSOFF,<bus>,RECOVER */
+        can_ctrl_t *c = sel_bus(strtok_r(NULL, ",", save));
+        char *a = strtok_r(NULL, ",", save);
+        if (!c || !a || strcmp(a, "RECOVER")) { emit("STATUS,ERR,BAD_BUSOFF\r\n"); return true; }
+        const bool ok = can_hw_busoff_recover(c);
+        char s[48]; (void)snprintf(s, sizeof s, "STATUS,%s,BUSOFF,%s\r\n", c->cfg->label, ok ? "RECOVERED" : "ERR"); emit(s);
+        return true;
+    }
+    if (strcmp(cmd, "SLEEP") == 0 || strcmp(cmd, "WAKE") == 0) {
+        can_ctrl_t *c = sel_bus(strtok_r(NULL, ",", save));
+        if (!c) { emit("STATUS,ERR,BAD_BUS\r\n"); return true; }
+        const bool sl = cmd[0] == 'S';
+        const bool ok = sl ? can_hw_sleep(c) : can_hw_wake(c);
+        char s[48]; (void)snprintf(s, sizeof s, "STATUS,%s,%s,%s\r\n", c->cfg->label, sl ? "SLEEP" : "WAKE", ok ? "OK" : "ERR"); emit(s);
+        return true;
+    }
+    return false;
+}
+
 /* ── host command parser ────────────────────────────────────────────────── */
 static void host_command(char *lb)
 {
     char *save = NULL;
     char *cmd = strtok_r(lb, ",", &save);
     if (!cmd) return;
+    if (can_ability_command(cmd, &save)) return;
 
     if (strcmp(cmd, "ARM") == 0) {
         if (!veh_key_on()) { emit("TX,ERR,KEY_NOT_ON\r\n"); return; }
@@ -575,7 +723,7 @@ static void host_command(char *lb)
         else if (strcmp(m,"LOOPBACK")==0)       md = CAN_MODE_LOOPBACK;
         else if (strcmp(m,"LOOPBACKSILENT")==0) md = CAN_MODE_LOOPBACK_SILENT;
         else { emit("STATUS,ERR,BAD_MODE\r\n"); return; }
-        if (md != CAN_MODE_SILENT && !c->tx_armed) {
+        if (md == CAN_MODE_NORMAL && !c->tx_armed) {   /* loopback: S stays HIGH */
             char s[48]; (void)snprintf(s,sizeof s,"STATUS,%s,MODE,REQUIRES_ARM\r\n",c->cfg->label); emit(s); return; }
         if (can_hw_set_controller_mode(c, md)) {
             char s[48]; (void)snprintf(s,sizeof s,"STATUS,%s,MODE,%s\r\n",c->cfg->label,m); emit(s);
@@ -749,6 +897,17 @@ static void dash_command(const char *line)
 }
 #endif
 
+
+#ifdef NET_DASHBOARD
+bool project_bus_state(uint8_t bus, uint32_t *bitrate, bool *listen_only)
+{
+    if (bus > 1u) return false;
+    const can_ctrl_t *c = &s_can[bus];
+    *bitrate = c->current_bitrate;
+    *listen_only = c->mode != CAN_MODE_NORMAL;
+    return c->current_bitrate != 0u && !c->asleep;
+}
+#endif
 
 /* ── CAN interrupt handlers ─────────────────────────────────────────────── */
 void CAN1_RX0_IRQHandler(void) { can_hw_rx_drain(&s_can[0], &capture_queue[0], 0u, system_millis); }
@@ -1164,7 +1323,14 @@ int main(void)
     can_capture_queue_init(&capture_queue[0]);
     can_capture_queue_init(&capture_queue[1]);
     for (uint32_t i = 0; i < 2u; i++) { can_profiler_init(&profiler[i]); can_profiler_set_bus(&profiler[i], (uint8_t)i); }
-    remote_start_init(&rs, NULL);
+    {   /* Engine start works in read-only and write mode (no ARM needed). */
+        remote_start_cfg_t rcfg = { .timeout_ms = RS_TIMEOUT_DEFAULT_MS,
+            .rpm_running_threshold = (uint16_t)RS_RPM_THRESHOLD_DEFAULT,
+            .min_crank_ms = RS_MIN_CRANK_DEFAULT_MS, .require_armed = false,
+            .require_neutral_or_park = true, .require_brake = true,
+            .require_immobilizer_ok = true };
+        remote_start_init(&rs, &rcfg);
+    }
     gear_led_init(&gear_led);
     starter_gpio_init();
     ignition_inputs_init();
@@ -1230,6 +1396,7 @@ int main(void)
             rs_in.rpm_fresh = obd || bc;
         }
         veh_update();
+        write_service();
         rs_in.armed = s_can[0].tx_armed;
         remote_start_apply(remote_start_poll(&rs, &rs_in, system_millis));
         start_crank_can();

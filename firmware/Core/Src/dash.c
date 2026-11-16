@@ -680,6 +680,13 @@ static void gvretWrite(const uint8_t *b, size_t n)
     if (gvretCli && n && tcp_sndbuf(gvretCli) >= n) (void)tcp_write(gvretCli, b, (u16_t)n, TCP_WRITE_FLAG_COPY | TCP_WRITE_FLAG_MORE);
 }
 
+/* Live controller state for GVRET; main.c provides the real one. */
+__attribute__((weak)) bool project_bus_state(uint8_t bus, uint32_t *bit_rate, bool *listen_only)
+{
+    (void)bus; *bit_rate = 0u; *listen_only = true;
+    return false;
+}
+
 static void gvretHandle(const uint8_t *data, size_t len)
 {
     for (size_t k = 0; k < len; k++) {
@@ -692,7 +699,9 @@ static void gvretHandle(const uint8_t *data, size_t len)
         case GVRET_CMD_GET_NUMBUSES:     rn = gvret_encode_numbuses(rb, sizeof rb, 2); gvretWrite(rb, rn); break;
         case GVRET_CMD_TIME_SYNC:        rn = gvret_encode_time_sync(rb, sizeof rb, TIM2->CNT); gvretWrite(rb, rn); break;
         case GVRET_CMD_GET_CANBUS_PARAMS: {
-            uint8_t pb[16]; const size_t pn = gvret_encode_canbus_params(pb, sizeof pb, true, bitrate, true, 0);
+            uint32_t b0, b1; bool l0, l1;
+            const bool e0 = project_bus_state(0u, &b0, &l0), e1 = project_bus_state(1u, &b1, &l1);
+            uint8_t pb[16]; const size_t pn = gvret_encode_canbus_params_lo(pb, sizeof pb, e0, l0, b0, e1, l1, b1);
             gvretWrite(pb, pn); break;
         }
         case GVRET_CMD_SEND_FRAME: {

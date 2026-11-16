@@ -35,6 +35,7 @@
 #include "uds_client.h"
 #include "ecu_scan.h"
 #include "can_opts.h"
+#include "can_filter.h"
 
 /* Shared scan/arm tuning (were main.c module macros; now shared by both buses). */
 #define CAN_DWELL_FAST_MS         200u
@@ -179,6 +180,14 @@ bool can_hw_tx_service(can_ctrl_t *c, uint32_t now_ms,
                                       const char *result),
                        const char **disarm_reason);
 
+/* Program one filter bank (FINIT held while editing). Bank must be on the
+ * controller's side of CAN2SB; false otherwise. */
+bool can_hw_filter_program(const can_ctrl_t *c, const can_filter_regs_t *r);
+/* Deactivate one bank of this controller. */
+bool can_hw_filter_disable(const can_ctrl_t *c, uint8_t bank);
+/* First bank owned by CAN2 (CAN_FMR.CAN2SB, 1..27). */
+uint8_t can_hw_can2sb(void);
+bool can_hw_set_can2sb(uint8_t start);
 /* TX mailbox interrupt: record completed mailboxes (clears RQCP). */
 void can_hw_tx_isr(can_ctrl_t *c);
 /* Re-apply c->opts (MCR bits + SJW) keeping bitrate and mode. */

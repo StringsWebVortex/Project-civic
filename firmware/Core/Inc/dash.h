@@ -15,5 +15,7 @@ typedef void (*dash_cmd_fn)(const char *line);   /* line without newline */
 bool dash_init(dash_cmd_fn cmd, can_capture_queue_t *q_fcan, can_capture_queue_t *q_bcan);
 void dash_on_line(const char *line);             /* every line the STM32 emits */
 void dash_poll(void);
+/* Live bus state (bitrate, listen-only); false if the bus is not running. */
+bool project_bus_state(uint8_t bus, uint32_t *bit_rate, bool *listen_only);
 
 #endif

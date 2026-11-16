@@ -159,6 +159,10 @@ size_t gvret_encode_numbuses(uint8_t *buf, size_t cap, uint8_t n);
  *   bus1: enabled(1; listen-only bit4 left 0), bitrate(4 LE).
  * Returns 12, or 0 if too small.
  */
+/* As gvret_encode_canbus_params, with the listen-only flag (bit4) per bus. */
+size_t gvret_encode_canbus_params_lo(uint8_t *buf, size_t cap,
+                                     bool en0, bool lo0, uint32_t bitrate0,
+                                     bool en1, bool lo1, uint32_t bitrate1);
 size_t gvret_encode_canbus_params(uint8_t *buf, size_t cap,
                                   bool en0, uint32_t bitrate0,
                                   bool en1, uint32_t bitrate1);

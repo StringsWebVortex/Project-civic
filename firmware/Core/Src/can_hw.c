@@ -209,6 +209,42 @@ void can_hw_filters_init(can_ctrl_t *can1, can_ctrl_t *can2, bool use_fifo1)
     CAN1->FMR &= ~CAN_FMR_FINIT;
 }
 
+uint8_t can_hw_can2sb(void) { return (uint8_t)((CAN1->FMR & CAN_FMR_CAN2SB) >> 8); }
+
+static bool bank_owned(const can_ctrl_t *c, uint8_t bank)
+{
+    if (!c || !c->cfg || bank > 27u) return false;
+    const uint8_t sb = can_hw_can2sb();
+    return c->cfg->is_can2 ? bank >= sb : bank < sb;
+}
+
+bool can_hw_filter_program(const can_ctrl_t *c, const can_filter_regs_t *r)
+{
+    if (!r || !bank_owned(c, r->bank)) return false;
+    CAN1->FMR |= CAN_FMR_FINIT;
+    apply_filter(r);
+    CAN1->FMR &= ~CAN_FMR_FINIT;
+    return true;
+}
+
+bool can_hw_filter_disable(const can_ctrl_t *c, uint8_t bank)
+{
+    if (!bank_owned(c, bank)) return false;
+    CAN1->FMR |= CAN_FMR_FINIT;
+    CAN1->FA1R &= ~(1u << bank);
+    CAN1->FMR &= ~CAN_FMR_FINIT;
+    return true;
+}
+
+bool can_hw_set_can2sb(uint8_t start)
+{
+    if (start < 1u || start > 27u) return false;
+    CAN1->FMR |= CAN_FMR_FINIT;
+    CAN1->FMR = (CAN1->FMR & ~CAN_FMR_CAN2SB) | ((uint32_t)start << 8);
+    CAN1->FMR &= ~CAN_FMR_FINIT;
+    return true;
+}
+
 /* ── passive scan / lock ─────────────────────────────────────────────── */
 void can_hw_start_passive(can_ctrl_t *c, uint32_t now_ms)
 {

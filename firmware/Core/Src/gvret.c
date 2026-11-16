@@ -254,20 +254,27 @@ size_t gvret_encode_numbuses(uint8_t *buf, size_t cap, uint8_t n)
     return 3u;
 }
 
-size_t gvret_encode_canbus_params(uint8_t *buf, size_t cap,
-                                  bool en0, uint32_t bitrate0,
-                                  bool en1, uint32_t bitrate1)
+size_t gvret_encode_canbus_params_lo(uint8_t *buf, size_t cap,
+                                     bool en0, bool lo0, uint32_t bitrate0,
+                                     bool en1, bool lo1, uint32_t bitrate1)
 {
     if (!buf || cap < 12u) {
         return 0u;
     }
     buf[0] = (uint8_t)GVRET_START_BYTE;
     buf[1] = (uint8_t)GVRET_CMDB_GET_CANBUS_PARAMS;
-    buf[2] = en0 ? 0x01u : 0x00u; /* listen-only would be bit4 */
+    buf[2] = (uint8_t)((en0 ? 0x01u : 0x00u) | (lo0 ? 0x10u : 0x00u));
     put_u32le(buf + 3, bitrate0);
-    buf[7] = en1 ? 0x01u : 0x00u;
+    buf[7] = (uint8_t)((en1 ? 0x01u : 0x00u) | (lo1 ? 0x10u : 0x00u));
     put_u32le(buf + 8, bitrate1);
     return 12u;
+}
+
+size_t gvret_encode_canbus_params(uint8_t *buf, size_t cap,
+                                  bool en0, uint32_t bitrate0,
+                                  bool en1, uint32_t bitrate1)
+{
+    return gvret_encode_canbus_params_lo(buf, cap, en0, false, bitrate0, en1, false, bitrate1);
 }
 
 size_t gvret_encode_time_sync(uint8_t *buf, size_t cap, uint32_t micros)
