@@ -370,6 +370,11 @@ test-host:
 	@$(PYTHON) tests/testresult.py pytests --timeout 60 || true
 	@echo "test-host finished: run 'make results'"
 
+# Line coverage of all host-tested sources; result lists every file below 99 %.
+test-coverage:
+	@$(RECORD) coverage --timeout 900 -- $(PYTHON) tests/coverage.py --gate 99 || true
+	@echo "test-coverage finished: run 'make result T=coverage'"
+
 test-sanitize:
 	@for t in $(SAN_TESTS); do \
 	  $(RECORD) $$t --timeout 120 --build "$(MAKE) -s build/$$t" -- ./build/$$t || true; \
