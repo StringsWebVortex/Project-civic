@@ -185,6 +185,8 @@ static void test_ws_commands(void)
     clear(); ws("{\"op\":\"mailcfg\",\"to\":\"bad\",\"from\":\"a@b.c\",\"pass\":\"pw\"}");
     CHECK(strcmp(mail_global()->to, "a@b.c") == 0, "bad mailcfg rejected");
     clear(); ws("{\"op\":\"mailsend\"}");
+    clear(); dash_on_line("DEVICE,TARGET,1,Honda Civic\r\n");
+    CHECK(nmsg >= 1 && strstr(msgs[nmsg - 1], "DEVICE,TARGET,1,Honda Civic") != NULL, "DEVICE line forwarded");
     clear(); ws("{\"op\":\"can\",\"line\":\"START\"}");        CHECK(ncmd == 0, "can rejects non-ability verbs");
     clear(); ws("{\"op\":\"periodic\",\"slot\":2,\"bus\":\"F\",\"format\":\"S\",\"id\":\"7df\",\"dlc\":3,\"data\":\"02010c\",\"period\":100}");
     CHECK(has_cmd("PERIODIC,2,F,S,7DF,3,02010C,100"), "periodic");

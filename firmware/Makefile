@@ -399,6 +399,11 @@ test-esp32:
 	@$(RECORD) build_esp32_dashboard --timeout 600 -- $(PIO) run -d esp32-dashboard || true
 	@echo "test-esp32 finished: run 'make results'"
 
+# On-board self-test over USB (board must be connected and running).
+test-board:
+	@$(RECORD) board_selftest --timeout 120 -- $(PYTHON) tools/board_selftest.py || true
+	@echo "test-board finished: run 'make result T=board_selftest'"
+
 # Static analysis (GCC -fanalyzer + extra warnings) over project sources,
 # recorded as lint_firmware. Any warning fails the test (-Werror).
 LINT_SRCS = Core/Src/can_dbc.c $(filter Core/Src/%.c,$(filter-out Core/Src/system_stm32f4xx.c,$(FIRMWARE_SRCS))) Core/Src/gvret_bridge.c USB/usb_tx_queue.c \

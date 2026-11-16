@@ -762,6 +762,7 @@ static void parseLine(const char *raw, int len)
     if (len == 0) return;
     if (strncmp(raw, "TX,", 3) == 0) { broadcast_type_msg("tx", raw); return; }
     if (strncmp(raw, "GEAR,", 5) == 0) { diag(raw); return; }       /* LED chase acks / broadcast gear */
+    if (strncmp(raw, "DEVICE,", 7) == 0) { diag(raw); return; }     /* device detect / target */
     if (strncmp(raw, "UDS,", 4) == 0 || strncmp(raw, "CMD,", 4) == 0 ||
         strncmp(raw, "ECU,", 4) == 0 || strncmp(raw, "START,", 6) == 0) {
         if (strncmp(raw, "UDS,", 4) == 0) {
