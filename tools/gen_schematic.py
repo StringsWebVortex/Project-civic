@@ -211,8 +211,8 @@ u1, _ = transceiver(820, 420, "U1", "F-CAN 500 kbit/s (bxCAN1)", "CAN1_TX", "CAN
 u2, _ = transceiver(820, 820, "U2", "B-CAN 125 kbit/s (bxCAN2)", "CAN2_TX", "CAN2_RX", "TJA2_S", "BCAN_H", "BCAN_L", "R3", "R4", "C5")
 text(560, 660, "No bus termination on U1/U2: the car's bus is already terminated; this is a stub node (NXP Fig. 18 note **).", 11, color=NOTE)
 
-# ── J3 B-CAN tap ──────────────────────────────────────────────────────────
-j3, j3h = ic(1500, 1080, 150, "J3", "B-CAN tap (2-pin)", [(1, "CAN-H"), (2, "CAN-L")], [], pitch=34)
+# ── J2 B-CAN tap ──────────────────────────────────────────────────────────
+j3, j3h = ic(1500, 1080, 150, "J2", "B-CAN tap (2-pin)", [(1, "CAN-H"), (2, "CAN-L")], [], pitch=34)
 x, y = j3["CAN-H"]; line([(x, y), (x - 40, y)]); netlabel(x - 40, y, "BCAN_H", side="left")
 x, y = j3["CAN-L"]; line([(x, y), (x - 40, y)]); netlabel(x - 40, y, "BCAN_L", side="left")
 text(1500, 1080 + j3h + 20, "Body-bus tap point: NOT on the DLC per the available", 11, color=PWR)
@@ -274,8 +274,8 @@ for t, c in [("CN5 USB OTG FS (micro-B): to head-unit / laptop USB host —", NE
              ("All other P1/P2 pins: leave unconnected.", PWR)]:
     text(mx - 40, ny, t, 12, color=c, weight="bold" if c == PWR else "normal"); ny += 18
 
-# ── J4 start / key sense (stages per hardware reference) ──────────────────
-j4, j4h = ic(2180, 1080, 220, "J4", "to start relay / key-sense stages", [(1, "START_RELAY"), (2, "ACC_SENSE"), (3, "IGN2_SENSE")], [], pitch=34)
+# ── J3 start / key sense (stages per hardware reference) ──────────────────
+j4, j4h = ic(2180, 1080, 220, "J3", "to start relay / key-sense stages", [(1, "START_RELAY"), (2, "ACC_SENSE"), (3, "IGN2_SENSE")], [], pitch=34)
 for n in ("START_RELAY", "ACC_SENSE", "IGN2_SENSE"):
     x, y = j4[n]; line([(x, y), (x - 30, y)]); netlabel(x - 30, y, n, side="left")
 text(2180, 1080 + j4h + 20, "PE4: drives a 5 V-triggered relay that switches 12 V at the", 11, color=NOTE)

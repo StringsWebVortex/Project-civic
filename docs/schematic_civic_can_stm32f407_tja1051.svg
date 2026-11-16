@@ -334,7 +334,7 @@
 <text x="905" y="1022" font-size="13" text-anchor="middle" fill="#0b5cad" font-weight="bold">B-CAN 125 kbit/s (bxCAN2)</text>
 <text x="560" y="660" font-size="11" text-anchor="start" fill="#555" font-weight="normal">No bus termination on U1/U2: the car's bus is already terminated; this is a stub node (NXP Fig. 18 note **).</text>
 <rect x="1500" y="1080" width="150" height="88" fill="#fffdf2" stroke="#111" stroke-width="2"/>
-<text x="1575.0" y="1054" font-size="15" text-anchor="middle" fill="#111" font-weight="bold">J3</text>
+<text x="1575.0" y="1054" font-size="15" text-anchor="middle" fill="#111" font-weight="bold">J2</text>
 <text x="1575.0" y="1071" font-size="13" text-anchor="middle" fill="#111" font-weight="normal">B-CAN tap (2-pin)</text>
 <polyline points="1466,1100 1500,1100" fill="none" stroke="#111" stroke-width="2" stroke-linejoin="round"/>
 <text x="1470" y="1095" font-size="11" text-anchor="start" fill="#6a1b9a" font-weight="normal">1</text>
@@ -525,7 +525,7 @@
 <text x="2140" y="924" font-size="12" text-anchor="start" fill="#555" font-weight="normal">PD4 = CS43L22 reset (on-board), firmware holds it LOW: do not wire</text>
 <text x="2140" y="942" font-size="12" text-anchor="start" fill="#b3261e" font-weight="bold">All other P1/P2 pins: leave unconnected.</text>
 <rect x="2180" y="1080" width="220" height="122" fill="#fffdf2" stroke="#111" stroke-width="2"/>
-<text x="2290.0" y="1054" font-size="15" text-anchor="middle" fill="#111" font-weight="bold">J4</text>
+<text x="2290.0" y="1054" font-size="15" text-anchor="middle" fill="#111" font-weight="bold">J3</text>
 <text x="2290.0" y="1071" font-size="13" text-anchor="middle" fill="#111" font-weight="normal">to start relay / key-sense stages</text>
 <polyline points="2146,1100 2180,1100" fill="none" stroke="#111" stroke-width="2" stroke-linejoin="round"/>
 <text x="2150" y="1095" font-size="11" text-anchor="start" fill="#6a1b9a" font-weight="normal">1</text>
