@@ -155,13 +155,19 @@ function fail(msg) { console.log('FAIL: ' + msg); process.exitCode = 1; }
   await page.evaluate(() => { clearTimeout(hondaGearTimer); hondaGearPending = false; });
 
   // Global Write display mode changes the dashboard palette but never stops Read monitoring.
-  const writesBeforeDraft = await page.evaluate(() => window.__sent.length);
   if (await page.locator('#tabR, #tabW').count()) fail('duplicate mode controls remain; only one global toggle is allowed');
   if (await page.locator('#globalModeToggle').count() !== 1) fail('single global Write toggle is missing');
   await page.click('#globalModeToggle');
+  const wrOn = await page.evaluate(() => window.__sent.filter(x => x.op === 'write').slice(-1)[0]);
+  if (!wrOn || wrOn.on !== true) fail('Write toggle did not request WRITE,ON from the board');
+  if ((await page.locator('body').getAttribute('class') || '').includes('write-mode')) fail('UI entered write mode before the board confirmed');
+  await page.evaluate(() => __diag('STATUS,SYS,WRITE,ON'));
   if (!(await page.locator('body').getAttribute('class') || '').includes('write-mode')) fail('global Write palette not enabled');
+  const anim = await page.locator('#globalModeToggle').evaluate(e => getComputedStyle(e).animationName);
+  if (anim !== 'wpulse') fail('write mode is not pulsing: ' + anim);
   if ((await page.locator('#pnlR').evaluate(e => getComputedStyle(e).display)) === 'none') fail('Read panel hidden in Write mode');
   if ((await page.locator('#pnlW').evaluate(e => getComputedStyle(e).display)) === 'none') fail('Write panel not shown');
+  const writesBeforeDraft = await page.evaluate(() => window.__sent.length);
   const liveField = page.locator('#pidRows b[data-field-id]').first();
   if (!(await liveField.count())) fail('decoded live PID value is not editable/stageable');
   await liveField.dblclick();
@@ -173,6 +179,9 @@ function fail(msg) { console.log('FAIL: ' + msg); process.exitCode = 1; }
   const writesAfterDraft = await page.evaluate(() => window.__sent.length);
   if (writesAfterDraft !== writesBeforeDraft) fail('local stage editor transmitted a command');
   await page.click('#globalModeToggle');
+  const wrOff = await page.evaluate(() => window.__sent.filter(x => x.op === 'write').slice(-1)[0]);
+  if (!wrOff || wrOff.on !== false) fail('Write toggle did not request WRITE,OFF');
+  await page.evaluate(() => __diag('STATUS,SYS,WRITE,OFF'));
   if ((await page.locator('body').getAttribute('class') || '').includes('write-mode')) fail('global Read palette did not restore');
   if ((await page.locator('#pnlR').evaluate(e => getComputedStyle(e).display)) === 'none') fail('Read panel hidden after mode toggle');
 
@@ -200,6 +209,7 @@ function fail(msg) { console.log('FAIL: ' + msg); process.exitCode = 1; }
   await page.evaluate(() => { window.__sent.length = 0; $('wrDid').value = '0101'; $('wrData').value = '01 02'; didOp('write'); });
   const wr = await page.evaluate(() => window.__sent.filter(x => x.op === 'uds')[0]);
   if (!wr || wr.req !== '2E01010102' || wr.confirm !== true) fail('DID write wrong: ' + JSON.stringify(wr));
+
   await answer('2E01010102', ['UDS,F,NEG,7E8,2E,33']);
   if (!(await page.textContent('#wrOut')).includes('NRC 0x33')) fail('NRC not shown');
 
@@ -296,6 +306,23 @@ function fail(msg) { console.log('FAIL: ' + msg); process.exitCode = 1; }
   if (!pol.skipped) fail('silent control unit not skipped');
 
   if (errors.length) fail('page errors: ' + errors.join(' | '));
+  // Engine start: one click, no confirmation dialog, no ARM requirement.
+  await page.evaluate(() => { window.__sent.length = 0; window.confirm = () => false; doStart(); window.confirm = () => true; });
+  const st = await page.evaluate(() => window.__sent.map(x => x.op));
+  if (!st.includes('start')) fail('single-click engine start did not send start: ' + JSON.stringify(st));
+  await page.evaluate(() => { window.__sent.length = 0; doStartCfg(); });
+  const sc = await page.evaluate(() => window.__sent.filter(x => x.op === 'startcfg')[0]);
+  if (sc && sc.armed !== 0) fail('engine start must not require ARM: ' + JSON.stringify(sc));
+
+  // bxCAN abilities panel sends whitelisted ability lines.
+  await page.evaluate(() => { window.__sent.length = 0; $('abBus').value = 'B'; abOpt('NART', true);
+    $('abBank').value = '20'; $('abFf').value = '1';
+    document.querySelector('#canAbilities button[onclick*="FILTER"]').click(); });
+  const ab = await page.evaluate(() => window.__sent.filter(x => x.op === 'can').map(x => x.line));
+  if (!ab.includes('OPT,B,NART,on')) fail('ability option not sent: ' + JSON.stringify(ab));
+  if (!ab.some(l => l.startsWith('FILTER,B,20,M,32,1,'))) fail('filter program not sent: ' + JSON.stringify(ab));
+  await page.evaluate(() => __diag('STATUS,B,OPTS,ABOM=1,AWUM=0,NART=1,RFLM=0,TXFP=0,TTCM=1,DBF=1,SJW=3'));
+  if (!(await page.locator('#abNART').isChecked()) || (await page.inputValue('#abSJW')) !== '3') fail('OPTS status not reflected in panel');
   await browser.close();
   if (!process.exitCode) console.log('dashboard harness: all checks passed');
 })().catch(e => { console.log('FAIL: ' + e.message); process.exit(1); });

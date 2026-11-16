@@ -24,6 +24,10 @@ body.write-mode .mtab.on,body.write-mode .btn,body.write-mode #globalModeToggle{
 body.write-mode .btn:hover{background:#a84e16}
 body.write-mode .fld select,body.write-mode .fld input[type=text],body.write-mode .byte-row input{background:#21150f;border-color:#895229;color:#fff0dc}
 body.write-mode #writeModeBanner{display:block}
+@keyframes wpulse{0%,100%{filter:brightness(1);box-shadow:0 0 0 0 #ff8a1e00}50%{filter:brightness(1.55);box-shadow:0 0 18px 4px #ff8a1eaa}}
+body.write-mode #globalModeToggle,body.write-mode #writeModeBanner,body.write-mode #sideNav{animation:wpulse 1.2s ease-in-out infinite}
+body.write-mode{animation:wbg 1.2s ease-in-out infinite}
+@keyframes wbg{0%,100%{background-color:#1a1006}50%{background-color:#3a1d06}}
 @media(max-width:600px){.page-head{align-items:flex-start;flex-wrap:wrap}.page-head h1{font-size:1rem}#globalModeToggle{margin-left:auto}}
 #sideNav{position:fixed;z-index:100;left:0;right:0;top:auto;bottom:0;width:100%;min-height:66px;padding:7px 10px calc(7px + env(safe-area-inset-bottom));background:#111820;border-top:1px solid #30363d;overflow-x:auto;overflow-y:hidden;display:flex;flex-direction:row;align-items:center;gap:5px;box-shadow:0 -5px 18px #0008;scrollbar-width:thin}
 #sideNav .nav-brand{font-size:.72rem;font-weight:800;color:#e6edf3;padding:5px 9px;border-right:1px solid #30363d;margin-right:4px;white-space:nowrap;flex:0 0 auto}
@@ -131,7 +135,7 @@ tbody td{padding:4px 8px;border-bottom:1px solid #21262d;white-space:nowrap}
 </nav>
 <div id="top"></div>
 <div class="page-head"><h1>Vehicle Telemetry Dashboard</h1><button id="globalModeToggle" type="button" onclick="toggleGlobalMode()">ENTER WRITE MODE</button></div>
-<div id="writeModeBanner">WRITE DISPLAY MODE · Read telemetry and event monitoring continue in the background. Live sensor edits below are staged locally only; they are not transmitted to the vehicle because these measurements do not have verified write encoders.</div>
+<div id="writeModeBanner">WRITE MODE ACTIVE · Both buses are full CAN nodes (bxCAN Normal, TJA1051 S low): TX, UDS, ECU scan, periodic, gateway and every write protocol may transmit. Press EXIT WRITE MODE to return every protocol to read-only. <b id="writeState"></b></div>
 <div id="statusBar">Connecting…</div>
 <div id="vehBar" style="margin:6px 0 10px;padding:8px 12px;border:1px solid #30363d;border-radius:8px;font-size:.85rem">Key: <b>—</b></div>
 
@@ -339,6 +343,39 @@ tbody td{padding:4px 8px;border-bottom:1px solid #21262d;white-space:nowrap}
 </div>
 
 <!-- ══ FULL WIDTH: Controllers & bus health ══ -->
+<div class="card full" id="canAbilities">
+  <div class="card-head"><span class="card-title">bxCAN Abilities</span><span class="card-sub">RM0090 · per controller</span></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:.74rem;margin-bottom:8px">
+    Bus <select id="abBus" onchange="abRefresh()"><option value="F">CAN1 / F-CAN</option><option value="B">CAN2 / B-CAN</option></select>
+    <label><input type="checkbox" id="abABOM" onchange="abOpt('ABOM',this.checked)"> ABOM auto bus-off</label>
+    <label><input type="checkbox" id="abAWUM" onchange="abOpt('AWUM',this.checked)"> AWUM wake on bus</label>
+    <label><input type="checkbox" id="abNART" onchange="abOpt('NART',this.checked)"> NART one-shot</label>
+    <label><input type="checkbox" id="abRFLM" onchange="abOpt('RFLM',this.checked)"> RFLM keep oldest</label>
+    <label><input type="checkbox" id="abTXFP" onchange="abOpt('TXFP',this.checked)"> TXFP request order</label>
+    <label><input type="checkbox" id="abTTCM" onchange="abOpt('TTCM',this.checked)"> TTCM hw timestamp</label>
+    <label><input type="checkbox" id="abDBF" onchange="abOpt('DBF',this.checked)"> DBF debug freeze</label>
+    SJW <select id="abSJW" onchange="canCmd('OPT,'+abBus()+',SJW,'+this.value)"><option>1</option><option>2</option><option>3</option><option>4</option></select>
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:.74rem;margin-bottom:8px">
+    <button class="btn btn-sm" onclick="canCmd('ERRSTATE,'+abBus())">Error state</button>
+    <button class="btn btn-sm" onclick="canCmd('BUSOFF,'+abBus()+',RECOVER')">Bus-off recover</button>
+    <button class="btn btn-sm" onclick="canCmd('SLEEP,'+abBus())">Sleep</button>
+    <button class="btn btn-sm" onclick="canCmd('WAKE,'+abBus())">Wake</button>
+    CAN2 start bank <input id="abCan2sb" type="number" min="1" max="27" value="14" style="width:52px"><button class="btn btn-sm" onclick="canCmd('CAN2SB,'+$('abCan2sb').value)">Set</button>
+    <span id="abErr" style="color:#8b949e"></span>
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:.74rem">
+    Filter bank <input id="abBank" type="number" min="0" max="27" value="2" style="width:50px">
+    <select id="abFm"><option value="M">mask</option><option value="L">list</option></select>
+    <select id="abFs"><option>32</option><option>16</option></select>
+    FIFO <select id="abFf"><option>0</option><option>1</option></select>
+    FR1 <input id="abFr1" value="00000000" style="width:84px"> FR2 <input id="abFr2" value="00000000" style="width:84px">
+    <button class="btn btn-sm" onclick="canCmd(['FILTER',abBus(),$('abBank').value,$('abFm').value,$('abFs').value,$('abFf').value,$('abFr1').value,$('abFr2').value].join(','))">Program</button>
+    <button class="btn btn-sm" onclick="canCmd('FILTER,'+abBus()+','+$('abBank').value+',OFF')">Disable</button>
+    <button class="btn btn-sm" onclick="canCmd('FILTER,'+abBus()+',DEFAULT')">Accept all</button>
+    <span id="abFilt" style="color:#8b949e"></span>
+  </div>
+</div>
 <div class="card full" id="controllers">
   <div class="card-head">
     <span class="card-title">Controllers &amp; Bus Health</span>
@@ -824,7 +861,9 @@ function setMode(m){
   const toggle=$('globalModeToggle');
   if(toggle) toggle.textContent=w?'EXIT WRITE MODE':'ENTER WRITE MODE';
 }
-function toggleGlobalMode(){ setMode(dashboardWriteMode?'r':'w'); }
+/* The board is authoritative: the UI follows STATUS,SYS,WRITE,ON|OFF. */
+function toggleGlobalMode(){ wsSend({op:'write',on:!dashboardWriteMode}); }
+function canCmd(line){ wsSend({op:'can',line:line}); }
 
 /* Live measurements have no reverse encoding. Double-tap opens a local draft
  * editor only; it never calls wsSend(), the UDS queue, or the CAN TX path. */
@@ -976,14 +1015,30 @@ function onDiag(t){
     if(ev==='PENDING') return;
   }
 
+  if(t.startsWith('STATUS,SYS,WRITE,')){ setMode(f[3]==='ON'?'w':'r'); diagLog(t); return; }
+  if(f[0]==='STATUS' && (f[1]==='F'||f[1]==='B') && f[2]==='WRITE'){ const w=$('writeState'); if(w) w.textContent=f[1]+': '+f.slice(3).join(' '); diagLog(t); return; }
+  if(f[0]==='STATUS' && (f[1]==='F'||f[1]==='B') && (f[2]==='OPTS'||f[2]==='ERRSTATE'||f[2]==='FILTER'||f[2]==='BUSOFF'||f[2]==='SLEEP'||f[2]==='WAKE')){ abilityLine(f); diagLog(t); return; }
+  if(t.startsWith('STATUS,SYS,CAN2SB,')){ const e=$('abCan2sb'); if(e) e.value=f[3]; diagLog(t); return; }
   /* Per-bus ARM/DISARM acknowledgements are STATUS,F|B,ARMED|DISARMED,... */
   if(f[0]==='STATUS' && (f[1]==='F'||f[1]==='B')){
-    if(f[2]==='ARMED'){ armedBus=f[1]; armedLeft=parseInt(f[3],10)||0; showArm(); syncAutoPids(); diagLog(t); return; }
+    if(f[2]==='ARMED'){ armedBus=f[1]; armedLeft=f[3]==='WRITE'?600:(parseInt(f[3],10)||0); showArm(); syncAutoPids(); diagLog(t); return; }
     if(f[2]==='DISARMED'){ if(armedBus===f[1]){armedLeft=0;armedBus='';} showArm(); syncAutoPids(); diagLog(t); return; }
   }
   if(t.startsWith('STATUS,ARMED,')){ armedBus='F'; armedLeft=parseInt(f[2],10)||0; showArm(); syncAutoPids(); diagLog(t); return; }
   if(t.startsWith('STATUS,DISARMED,')){ armedLeft=0; armedBus=''; showArm(); syncAutoPids(); diagLog(t); return; }
   diagLog(t);
+}
+
+/* ── bxCAN abilities panel ── */
+function abBus(){ return $('abBus').value; }
+function abOpt(n,on){ canCmd('OPT,'+abBus()+','+n+','+(on?'on':'off')); }
+function abRefresh(){ canCmd('OPT,'+abBus()); canCmd('ERRSTATE,'+abBus()); canCmd('CAN2SB,?'); }
+function abilityLine(f){
+  if(f[1]!==abBus()) return;
+  if(f[2]==='OPTS'){ f.slice(3).forEach(kv=>{ const [k,v]=kv.split('='); const e=$('ab'+k); if(!e) return; if(e.type==='checkbox') e.checked=v==='1'; else e.value=v; }); }
+  else if(f[2]==='ERRSTATE'){ $('abErr').textContent=f.slice(3).join(' · '); }
+  else if(f[2]==='FILTER'){ $('abFilt').textContent='bank '+f.slice(3).join(' '); }
+  else { $('abErr').textContent=f.slice(2).join(' '); }
 }
 
 /* ── controllers & bus health ── */
@@ -1623,11 +1678,10 @@ function doStartCfg(){
   let to=Math.round((parseFloat(document.getElementById('rsTo').value)||2)*1000);
   if(to<500)to=500; if(to>10000)to=10000;
   wsSend({op:'startinputs',neutral:document.getElementById('rsNeutral').checked?1:0,brake:document.getElementById('rsBrake').checked?1:0,immob:document.getElementById('rsImmob').checked?1:0});
-  wsSend({op:'startcfg',timeout:to,armed:1,neutral:1,brake:1,immob:1,rpm:400});
+  wsSend({op:'startcfg',timeout:to,armed:0,neutral:1,brake:1,immob:1,rpm:400});
   diagLog('Remote-start safety applied (timeout '+(to/1000)+' s).');
 }
-function doStart(){
-  if(!confirm('Crank the engine now?\nThe starter engages until the ECU reports RPM or the timeout elapses. Make sure the car is safe to start.')) return;
+function doStart(){   /* single click, works in read-only and write mode */
   wsSend({op:'startinputs',neutral:document.getElementById('rsNeutral').checked?1:0,brake:document.getElementById('rsBrake').checked?1:0,immob:document.getElementById('rsImmob').checked?1:0});
   wsSend({op:'start'});
   diagLog('→ remote START requested on '+curBus);
@@ -1640,8 +1694,10 @@ function connect(){
   catch(e){ $('statusBar').textContent='WS error: '+e.message; setTimeout(connect,2000); return; }
   sock.onopen =()=>{
     $('statusBar').textContent='Connected — waiting for STM32…';
-    authOk=true;                 /* Wi-Fi WPA2 is the only gate (owner request) */
+    authOk=true;                 /* USB link to the host is the only gate */
     gearLedToggle();             /* re-apply the gear-LED source on every connect */
+    canCmd('WRITE,?');           /* follow the board's write/read-only state */
+    abRefresh();
   };
   sock.onclose=()=>{ $('statusBar').textContent='Disconnected — reconnecting…'; setTimeout(connect,1500); };
   sock.onerror=()=>$('statusBar').textContent='WebSocket error';

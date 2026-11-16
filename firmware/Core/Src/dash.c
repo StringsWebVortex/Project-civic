@@ -1000,6 +1000,18 @@ void dash_ws_text(uint8_t num, char *payload, size_t length)
         if (strcmp(v, "AUTO") != 0) { const long hz = strtol(v, NULL, 10); if (hz < 1 || hz > 1000000) { wsReply(num, "diag", "CMD,ERR,BAD_BITRATE"); return; } }
         snprintf(buf, sizeof buf, "BITRATE,%s,%s", bus, v); stm32_print(buf); return;
     }
+    if (strcmp(op, "write") == 0) {
+        stm32_print(jbool("on", false) ? "WRITE,ON" : "WRITE,OFF"); return;
+    }
+    if (strcmp(op, "can") == 0) {
+        /* bxCAN ability command line; only these verbs pass through. */
+        static const char *const ok[] = { "OPT,", "FILTER,", "CAN2SB,", "ERRSTATE,",
+                                          "BUSOFF,", "SLEEP,", "WAKE,", "WRITE," };
+        char line[96]; jstr("line", "", line, sizeof line);
+        for (size_t k = 0; k < sizeof ok / sizeof ok[0]; k++)
+            if (strncmp(line, ok[k], strlen(ok[k])) == 0) { stm32_print(line); return; }
+        wsReply(num, "diag", "CMD,ERR,UNKNOWN"); return;
+    }
     if (strcmp(op, "gateway") == 0) {
         snprintf(buf, sizeof buf, "GATEWAY,%s", jbool("on", false) ? "ON" : "OFF"); stm32_print(buf); return;
     }

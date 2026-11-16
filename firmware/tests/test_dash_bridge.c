@@ -174,6 +174,11 @@ static void test_ws_commands(void)
     clear(); ws("{\"op\":\"mode\",\"bus\":\"F\",\"mode\":\"silent\"}"); CHECK(has_cmd("MODE,F,SILENT"), "mode");
     clear(); ws("{\"op\":\"bitrate\",\"bus\":\"B\",\"value\":\"125000\"}"); CHECK(has_cmd("BITRATE,B,125000"), "bitrate");
     clear(); ws("{\"op\":\"gateway\",\"on\":true}");            CHECK(has_cmd("GATEWAY,ON"), "gateway");
+    clear(); ws("{\"op\":\"write\",\"on\":true}");              CHECK(has_cmd("WRITE,ON"), "write on");
+    clear(); ws("{\"op\":\"write\",\"on\":false}");             CHECK(has_cmd("WRITE,OFF"), "write off");
+    clear(); ws("{\"op\":\"can\",\"line\":\"OPT,F,NART,on\"}");  CHECK(has_cmd("OPT,F,NART,on"), "can opt");
+    clear(); ws("{\"op\":\"can\",\"line\":\"FILTER,B,20,M,32,1,0,0\"}"); CHECK(has_cmd("FILTER,B,20,M,32,1,0,0"), "can filter");
+    clear(); ws("{\"op\":\"can\",\"line\":\"START\"}");        CHECK(ncmd == 0, "can rejects non-ability verbs");
     clear(); ws("{\"op\":\"periodic\",\"slot\":2,\"bus\":\"F\",\"format\":\"S\",\"id\":\"7df\",\"dlc\":3,\"data\":\"02010c\",\"period\":100}");
     CHECK(has_cmd("PERIODIC,2,F,S,7DF,3,02010C,100"), "periodic");
     clear(); ws("{\"op\":\"ecuscan\",\"bus\":\"F\",\"format\":\"S\",\"first\":\"7e0\",\"last\":\"7e7\",\"req\":\"3e00\",\"wait\":60}");
