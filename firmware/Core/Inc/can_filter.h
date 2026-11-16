@@ -99,6 +99,9 @@ bool can_filter_compile(const can_filter_spec_t *spec, can_filter_regs_t *out);
 /* 32-bit mask, mask = 0 -> every incoming id matches. */
 can_filter_spec_t can_filter_accept_all(uint8_t bank, bool fifo1);
 
+/* 32-bit mask on IDE only: ext=false accepts every standard frame, ext=true
+ * every extended frame. Used to split traffic across FIFO0/FIFO1. */
+can_filter_spec_t can_filter_accept_format(uint8_t bank, bool ext, bool fifo1);
 /* 32-bit mask, exact match of one 11-bit standard id. The mask requires every
  * STID bit AND IDE = 0 (so a standard frame matches but an extended frame whose
  * top 11 bits happen to equal std_id does not); RTR is left "don't care". */

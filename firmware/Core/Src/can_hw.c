@@ -9,6 +9,9 @@
 #include "periph_timing.h"
 #include <string.h>
 
+#define MCR_OPT_MASK (CAN_MCR_TTCM | CAN_MCR_ABOM | CAN_MCR_AWUM | CAN_MCR_NART | \
+                      CAN_MCR_RFLM | CAN_MCR_TXFP | CAN_MCR_DBF)
+
 /* APB1 clock both controllers run from (set once from main). */
 static uint32_t s_pclk1_hz;
 
@@ -52,6 +55,7 @@ void can_hw_gpio_init(can_ctrl_t *c, const can_cfg_t *cfg)
     c->current_dwell_ms = CAN_DWELL_SLOW_MS;
     c->tx_tokens = TX_RATE_MAX_PER_SECOND;
     c->uds_pad = true;
+    c->opts = can_opts_default();
     gpio_clock_enable(cfg->gpio);
     /* TJA1051 RXD is a 5 V output: RX pins are FT (DS8626). TXD push-pull. */
     if (cfg->s_gpio) {
@@ -117,10 +121,12 @@ static void clocks_for(const can_cfg_t *cfg)
 static void nvic_enable_for(const can_cfg_t *cfg)
 {
     if (cfg->is_can2) {
+        NVIC_EnableIRQ(CAN2_TX_IRQn);
         NVIC_EnableIRQ(CAN2_RX0_IRQn);
         NVIC_EnableIRQ(CAN2_RX1_IRQn);
         NVIC_EnableIRQ(CAN2_SCE_IRQn);
     } else {
+        NVIC_EnableIRQ(CAN1_TX_IRQn);
         NVIC_EnableIRQ(CAN1_RX0_IRQn);
         NVIC_EnableIRQ(CAN1_RX1_IRQn);
         NVIC_EnableIRQ(CAN1_SCE_IRQn);
@@ -140,8 +146,8 @@ bool can_hw_set_bitrate(can_ctrl_t *c, uint32_t bitrate, can_mode_t mode)
     can->IER &= ~(CAN_IER_FMPIE0 | CAN_IER_FMPIE1);
     if (!can_enter_init(can)) { c->can_error_count++; return false; }
 
-    can->MCR |= CAN_MCR_ABOM;                       /* auto bus-off recovery */
-    can->BTR = btr | mode_btr_bits(mode);
+    can->MCR = (can->MCR & ~MCR_OPT_MASK) | can_opts_mcr_bits(&c->opts);
+    can->BTR = can_opts_apply_sjw(btr, c->opts.sjw) | mode_btr_bits(mode);
 
     while (can->RF0R & CAN_RF0R_FMP0) can->RF0R = CAN_RF0R_RFOM0;
     while (can->RF1R & CAN_RF1R_FMP1) can->RF1R = CAN_RF1R_RFOM1;
@@ -158,7 +164,8 @@ bool can_hw_set_bitrate(can_ctrl_t *c, uint32_t bitrate, can_mode_t mode)
 
     can->ESR = 0u;
     can->IER |= CAN_IER_FMPIE0 | CAN_IER_FMPIE1 | CAN_IER_FOVIE0 | CAN_IER_FOVIE1 |
-                CAN_IER_ERRIE | CAN_IER_LECIE | CAN_IER_BOFIE | CAN_IER_EPVIE;
+                CAN_IER_ERRIE | CAN_IER_LECIE | CAN_IER_BOFIE | CAN_IER_EPVIE |
+                CAN_IER_EWGIE | CAN_IER_TMEIE | CAN_IER_WKUIE;
     nvic_enable_for(c->cfg);
     return true;
 }
@@ -187,12 +194,17 @@ void can_hw_filters_init(can_ctrl_t *can1, can_ctrl_t *can2, bool use_fifo1)
     CAN1->FMR |= CAN_FMR_FINIT;
     CAN1->FMR = (CAN1->FMR & ~CAN_FMR_CAN2SB) | ((uint32_t)can2_start << 8);
 
+    /* Per controller: bank b = all 11-bit frames -> FIFO0, bank b+1 = all
+     * 29-bit frames -> FIFO1, so both 3-deep FIFOs share the load. */
     can_filter_regs_t r;
-    can_filter_spec_t s1 = can_filter_accept_all(can1->cfg->filter_bank, false);
-    if (can_filter_compile(&s1, &r)) apply_filter(&r);
-    if (can2 && can2->cfg) {
-        can_filter_spec_t s2 = can_filter_accept_all(can2->cfg->filter_bank, false);
-        if (can_filter_compile(&s2, &r)) apply_filter(&r);
+    can_ctrl_t *cs[2] = { can1, can2 };
+    for (uint32_t i = 0u; i < 2u; i++) {
+        if (!cs[i] || !cs[i]->cfg) continue;
+        const uint8_t b = cs[i]->cfg->filter_bank;
+        can_filter_spec_t sf = can_filter_accept_format(b, false, false);
+        if (can_filter_compile(&sf, &r)) apply_filter(&r);
+        sf = can_filter_accept_format((uint8_t)(b + 1u), true, true);
+        if (can_filter_compile(&sf, &r)) apply_filter(&r);
     }
     CAN1->FMR &= ~CAN_FMR_FINIT;
 }
@@ -291,6 +303,8 @@ void can_hw_rx_drain(can_ctrl_t *c, can_capture_queue_t *q, uint8_t fifo, uint32
         f.timestamp_ms = now_ms;
         f.timestamp_us = TIM2->CNT;
         f.bus      = c->cfg->bus_index;
+        f.fifo     = fifo;
+        f.hw_time  = (uint16_t)(rdtr >> 16);   /* CAN_RDTxR.TIME (TTCM) */
         f.extended = (rir & CAN_RI0R_IDE) ? 1u : 0u;
         f.remote   = (rir & CAN_RI0R_RTR) ? 1u : 0u;
         f.identifier = f.extended ? ((rir >> 3) & 0x1FFFFFFFu) : ((rir >> 21) & 0x7FFu);
@@ -314,13 +328,17 @@ void can_hw_rx_drain(can_ctrl_t *c, can_capture_queue_t *q, uint8_t fifo, uint32
         (void)can_capture_queue_push_isr(q, &f);
         *rfr = rfom;
     }
-    if (*rfr & fovr) { c->can_error_count++; *rfr = fovr; }
+    if (*rfr & fovr) { c->can_error_count++; c->fovr_count[fifo & 1u]++; *rfr = fovr; }
 }
 
 void can_hw_sce(can_ctrl_t *c)
 {
     CAN_TypeDef *can = c->cfg->can;
     const uint32_t esr = can->ESR;
+    const uint32_t msr = can->MSR;
+    c->last_esr = esr;
+    if (msr & CAN_MSR_WKUI) { c->wakeups++; c->asleep = false; can->MSR = CAN_MSR_WKUI; }
+    if (msr & CAN_MSR_SLAKI) can->MSR = CAN_MSR_SLAKI;
     if (esr & (CAN_ESR_BOFF | CAN_ESR_EPVF | CAN_ESR_EWGF)) c->can_error_count++;
     if (esr & CAN_ESR_LEC) {
         c->can_lec_count++;
@@ -466,6 +484,70 @@ bool can_hw_load_mailbox(can_ctrl_t *c, uint32_t id, bool ext, bool rtr,
     return true;
 }
 
+void can_hw_tx_isr(can_ctrl_t *c)
+{
+    static const uint32_t rqcp[3] = { CAN_TSR_RQCP0, CAN_TSR_RQCP1, CAN_TSR_RQCP2 };
+    static const uint32_t txok[3] = { CAN_TSR_TXOK0, CAN_TSR_TXOK1, CAN_TSR_TXOK2 };
+    static const uint32_t alst[3] = { CAN_TSR_ALST0, CAN_TSR_ALST1, CAN_TSR_ALST2 };
+    static const uint32_t terr[3] = { CAN_TSR_TERR0, CAN_TSR_TERR1, CAN_TSR_TERR2 };
+    CAN_TypeDef *can = c->cfg->can;
+    const uint32_t tsr = can->TSR;
+    for (uint32_t mb = 0u; mb < 3u; mb++) {
+        if (!(tsr & rqcp[mb])) continue;
+        can->TSR = rqcp[mb];
+        if (!c->tx_mailbox_busy[mb]) continue;
+        const uint8_t code = (tsr & txok[mb]) ? 0u : (tsr & alst[mb]) ? 1u :
+                             (tsr & terr[mb]) ? 2u : 3u;
+        const uint8_t nxt = (uint8_t)((c->txres_head + 1u) & 7u);
+        if (nxt != c->txres_tail) {
+            c->txres[c->txres_head].id = c->tx_mailbox_id[mb];
+            c->txres[c->txres_head].quiet = c->tx_mailbox_quiet[mb] ? 1u : 0u;
+            c->txres[c->txres_head].code = code;
+            c->txres_head = nxt;
+        } else {
+            c->txres_dropped++;
+        }
+        c->tx_mailbox_busy[mb] = false;
+    }
+}
+
+bool can_hw_apply_opts(can_ctrl_t *c)
+{
+    if (!c || !c->cfg || c->current_bitrate == 0u) return false;
+    return can_hw_set_bitrate(c, c->current_bitrate, c->mode);
+}
+
+bool can_hw_busoff_recover(can_ctrl_t *c)
+{
+    if (!c || !c->cfg) return false;
+    CAN_TypeDef *can = c->cfg->can;
+    if (!can_enter_init(can)) return false;
+    c->busoff_seen = 0u;
+    return can_leave_init(can);
+}
+
+bool can_hw_sleep(can_ctrl_t *c)
+{
+    if (!c || !c->cfg || c->tx_armed) return false;
+    CAN_TypeDef *can = c->cfg->can;
+    can->MCR = (can->MCR & ~CAN_MCR_INRQ) | CAN_MCR_SLEEP;
+    uint32_t to = 1000000u;
+    while (!(can->MSR & CAN_MSR_SLAK) && --to) { }
+    c->asleep = (to != 0u);
+    return c->asleep;
+}
+
+bool can_hw_wake(can_ctrl_t *c)
+{
+    if (!c || !c->cfg) return false;
+    CAN_TypeDef *can = c->cfg->can;
+    can->MCR &= ~CAN_MCR_SLEEP;
+    uint32_t to = 1000000u;
+    while ((can->MSR & CAN_MSR_SLAK) && --to) { }
+    c->asleep = (to == 0u);
+    return to != 0u;
+}
+
 bool can_hw_tx_service(can_ctrl_t *c, uint32_t now_ms,
                        void (*report)(can_ctrl_t *, uint32_t id, bool quiet,
                                       const char *result),
@@ -482,19 +564,12 @@ bool can_hw_tx_service(can_ctrl_t *c, uint32_t now_ms,
     }
     if (c->busoff_seen) { c->busoff_seen = 0u; *disarm_reason = "BUS_OFF"; auto_disarmed = true; }
 
-    static const uint32_t rqcp[3] = { CAN_TSR_RQCP0, CAN_TSR_RQCP1, CAN_TSR_RQCP2 };
-    static const uint32_t txok[3] = { CAN_TSR_TXOK0, CAN_TSR_TXOK1, CAN_TSR_TXOK2 };
-    static const uint32_t alst[3] = { CAN_TSR_ALST0, CAN_TSR_ALST1, CAN_TSR_ALST2 };
-    static const uint32_t terr[3] = { CAN_TSR_TERR0, CAN_TSR_TERR1, CAN_TSR_TERR2 };
-    const uint32_t tsr = can->TSR;
-    for (uint32_t mb = 0u; mb < 3u; mb++) {
-        if (!c->tx_mailbox_busy[mb] || !(tsr & rqcp[mb])) continue;
-        const char *res = (tsr & txok[mb]) ? "OK" :
-                          (tsr & alst[mb]) ? "ARB_LOST" :
-                          (tsr & terr[mb]) ? "TX_ERROR" : "ABORTED";
-        if (report) report(c, c->tx_mailbox_id[mb], c->tx_mailbox_quiet[mb], res);
-        can->TSR = rqcp[mb];
-        c->tx_mailbox_busy[mb] = false;
+    static const char *const names[4] = { "OK", "ARB_LOST", "TX_ERROR", "ABORTED" };
+    (void)can;
+    while (c->txres_tail != c->txres_head) {
+        const uint8_t t = c->txres_tail;
+        if (report) report(c, c->txres[t].id, c->txres[t].quiet != 0u, names[c->txres[t].code & 3u]);
+        c->txres_tail = (uint8_t)((t + 1u) & 7u);
     }
     return auto_disarmed;
 }

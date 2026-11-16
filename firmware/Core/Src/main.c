@@ -754,9 +754,11 @@ static void dash_command(const char *line)
 void CAN1_RX0_IRQHandler(void) { can_hw_rx_drain(&s_can[0], &capture_queue[0], 0u, system_millis); }
 void CAN1_RX1_IRQHandler(void) { can_hw_rx_drain(&s_can[0], &capture_queue[0], 1u, system_millis); }
 void CAN1_SCE_IRQHandler(void) { can_hw_sce(&s_can[0]); }
+void CAN1_TX_IRQHandler(void)  { can_hw_tx_isr(&s_can[0]); }
 void CAN2_RX0_IRQHandler(void) { can_hw_rx_drain(&s_can[1], &capture_queue[1], 0u, system_millis); }
 void CAN2_RX1_IRQHandler(void) { can_hw_rx_drain(&s_can[1], &capture_queue[1], 1u, system_millis); }
 void CAN2_SCE_IRQHandler(void) { can_hw_sce(&s_can[1]); }
+void CAN2_TX_IRQHandler(void)  { can_hw_tx_isr(&s_can[1]); }
 
 /* ── watchdog / reset cause (unchanged) ─────────────────────────────────── */
 static bool iwdg_start(void)

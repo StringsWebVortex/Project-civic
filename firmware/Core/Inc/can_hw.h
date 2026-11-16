@@ -34,6 +34,7 @@
 #include "can_frame_queue.h"
 #include "uds_client.h"
 #include "ecu_scan.h"
+#include "can_opts.h"
 
 /* Shared scan/arm tuning (were main.c module macros; now shared by both buses). */
 #define CAN_DWELL_FAST_MS         200u
@@ -91,6 +92,15 @@ typedef struct {
     uint32_t current_dwell_ms;
     uint32_t last_dwell_report_ms;
     can_mode_t mode;
+    can_opts_t opts;                    /* MCR options + SJW (can_opts.h)   */
+    volatile uint32_t last_esr;         /* ESR at the last SCE interrupt   */
+    volatile uint32_t fovr_count[2];    /* FIFO0/FIFO1 overruns            */
+    volatile uint32_t wakeups;          /* bus-activity wake-ups (AWUM)    */
+    volatile bool     asleep;
+    /* TX completions recorded by the TX interrupt, consumed by tx_service */
+    struct { uint32_t id; uint8_t quiet; uint8_t code; } txres[8];
+    volatile uint8_t txres_head, txres_tail;
+    volatile uint32_t txres_dropped;
 
     /* transmit / arm window */
     bool      tx_built;             /* compiled with TX support               */
@@ -169,6 +179,15 @@ bool can_hw_tx_service(can_ctrl_t *c, uint32_t now_ms,
                                       const char *result),
                        const char **disarm_reason);
 
+/* TX mailbox interrupt: record completed mailboxes (clears RQCP). */
+void can_hw_tx_isr(can_ctrl_t *c);
+/* Re-apply c->opts (MCR bits + SJW) keeping bitrate and mode. */
+bool can_hw_apply_opts(can_ctrl_t *c);
+/* Manual bus-off recovery (RM0090 32.7.6: INRQ set then cleared). */
+bool can_hw_busoff_recover(can_ctrl_t *c);
+/* bxCAN Sleep (low power); with AWUM the controller wakes on bus activity. */
+bool can_hw_sleep(can_ctrl_t *c);
+bool can_hw_wake(can_ctrl_t *c);
 /* Load a free TX mailbox (spends a rate-limit token). false = none free. */
 bool can_hw_load_mailbox(can_ctrl_t *c, uint32_t id, bool ext, bool rtr,
                          const uint8_t *data, uint8_t dlc, bool quiet);

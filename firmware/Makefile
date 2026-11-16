@@ -116,6 +116,7 @@ FIRMWARE_SRCS = \
   Core/Src/ecu_scan.c \
   Core/Src/can_hw.c \
   Core/Src/can_filter.c \
+  Core/Src/can_opts.c \
   Core/Src/remote_start.c \
   Core/Src/gear_led.c \
   startup_stm32f407xx.s
@@ -298,6 +299,16 @@ build/test_can_filter: tests/test_can_filter.c Core/Src/can_filter.c Core/Inc/ca
 	mkdir -p build
 	$(HOST_CC) $(HOST_CFLAGS) -ICore/Inc tests/test_can_filter.c Core/Src/can_filter.c -o $@
 
+build/test_can_opts: tests/test_can_opts.c Core/Src/can_opts.c Core/Inc/can_opts.h
+	mkdir -p build
+	$(HOST_CC) $(HOST_CFLAGS) -ICore/Inc tests/test_can_opts.c Core/Src/can_opts.c -o $@
+
+build/test_can_opts_san: tests/test_can_opts.c Core/Src/can_opts.c Core/Inc/can_opts.h
+	mkdir -p build
+	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -O1 -g \
+	  -fsanitize=address,undefined -fno-omit-frame-pointer \
+	  -ICore/Inc tests/test_can_opts.c Core/Src/can_opts.c -o $@
+
 ISOTP_SRCS = Core/Src/isotp.c Core/Src/uds_client.c
 ISOTP_HDRS = Core/Inc/isotp.h Core/Inc/uds_client.h
 
@@ -327,8 +338,8 @@ build/test_ecu_scan_san: tests/test_ecu_scan.c Core/Src/ecu_scan.c Core/Inc/ecu_
 # `make result T=<name>`. Never read the whole result file.
 PYTHON ?= python3
 RECORD = $(PYTHON) tests/testresult.py run
-C_TESTS     = test_periph_timing test_can_frame_queue test_obd2_decoder test_can_signal_profiler test_isotp_uds test_ecu_scan test_gvret test_gvret_bridge test_usb_tx_queue test_remote_start test_can_filter test_gear_led test_dash_store test_dash_bridge test_web_server test_can_dbc
-SAN_TESTS   = test_can_frame_queue_san test_obd2_decoder_san test_can_signal_profiler_san test_isotp_uds_san test_ecu_scan_san test_gvret_bridge_san test_usb_tx_queue_san test_gear_led_san test_dash_store_san test_dash_bridge_san test_web_server_san test_can_dbc_san
+C_TESTS     = test_periph_timing test_can_frame_queue test_obd2_decoder test_can_signal_profiler test_isotp_uds test_ecu_scan test_gvret test_gvret_bridge test_usb_tx_queue test_remote_start test_can_filter test_can_opts test_gear_led test_dash_store test_dash_bridge test_web_server test_can_dbc
+SAN_TESTS   = test_can_opts_san test_can_frame_queue_san test_obd2_decoder_san test_can_signal_profiler_san test_isotp_uds_san test_ecu_scan_san test_gvret_bridge_san test_usb_tx_queue_san test_gear_led_san test_dash_store_san test_dash_bridge_san test_web_server_san test_can_dbc_san
 
 test-host:
 	@for t in $(C_TESTS); do \

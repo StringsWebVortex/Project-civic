@@ -132,6 +132,14 @@ can_filter_spec_t can_filter_accept_all(uint8_t bank, bool fifo1)
     return s;
 }
 
+can_filter_spec_t can_filter_accept_format(uint8_t bank, bool ext, bool fifo1)
+{
+    can_filter_spec_t s = can_filter_accept_all(bank, fifo1);
+    s.ext1 = ext;
+    s.mask1_or_id2 = 0x4u;   /* only IDE (bit 2) is a care bit */
+    return s;
+}
+
 can_filter_spec_t can_filter_single_std(uint8_t bank, uint32_t std_id, bool fifo1)
 {
     can_filter_spec_t s = {0};

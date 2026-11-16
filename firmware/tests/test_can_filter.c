@@ -97,5 +97,15 @@ int main(void)
     assert(!can_filter_compile(&accept, NULL));
 
     printf("ALL CAN_FILTER TESTS PASS\n");
+    /* ---- frame-format split (std -> FIFO0, ext -> FIFO1) ------------------ */
+    {
+        can_filter_spec_t f = can_filter_accept_format(4u, false, false);
+        assert(can_filter_compile(&f, &r));
+        assert(r.bank == 4u && r.mask_mode && r.scale32 && !r.fifo1 && r.active);
+        assert(r.fr1 == 0x0u && r.fr2 == 0x4u);          /* IDE must be 0 */
+        f = can_filter_accept_format(5u, true, true);
+        assert(can_filter_compile(&f, &r));
+        assert(r.fifo1 && r.fr1 == 0x4u && r.fr2 == 0x4u); /* IDE must be 1 */
+    }
     return 0;
 }
