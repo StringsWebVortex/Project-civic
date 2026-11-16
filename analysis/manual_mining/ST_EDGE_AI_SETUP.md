@@ -21,9 +21,3 @@
 ## NanoEdge AI
 
 NanoEdge AI Studio is ST's more directly targeted AutoML workflow for anomaly detection / outlier detection / classification / extrapolation and supports STM32. The ST software page currently routes download through a software request/approval process (may take up to 48 hours). It is not part of the installed ST Edge AI Core package and is not installed on this workstation yet.
-
-## Project integration policy
-
-- First complete verified signal acquisition and store normal-operation baselines across cold start, warm idle, cruise, acceleration, deceleration, AC load and hot restart.
-- Keep OEM DTC/freeze-frame and deterministic plausibility rules authoritative.
-- ML anomaly output is advisory, must include score/reason/model version, and may never actuate, clear DTCs, or suppress an OEM fault.

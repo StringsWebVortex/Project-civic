@@ -3,7 +3,6 @@
 - DTC index rows: 140
 - Unique detailed troubleshooting pages: 129
 - Source: selected 2013 Honda Civic manual archive. The DTC index includes variant qualifiers (KA/KC/KL etc.).
-- This is a reference extraction, not an instruction to perform resets, actuator tests, or repairs. Preserve freeze-frame and snapshot data before any clearing/reset.
 
 ## P0201, P0202, P0203, P0204 — page 16634
 

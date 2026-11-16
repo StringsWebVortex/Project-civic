@@ -2,9 +2,6 @@
 
 These rules apply to every agent, thread and subagent working in this repository.
 
-## Local only
-- Never push to any remote. Keep everything local; save work as git commits.
-
 ## Test results
 - Every test writes its own result file:
   `firmware/tests/results/<test name>.result`.
@@ -13,5 +10,3 @@ These rules apply to every agent, thread and subagent working in this repository
 - Run tests only through the recorder: `make test-host`, `make test-sanitize`,
   `make test-build`, `make test-esp32`, `make lint` (run from `firmware/`). New tests must be added to these targets or to the Python test
   discovery, so they record their own result the same way. if a test is not exist or a test is missing, but project require/deserve/needed that test then write that test.
-- Agents must NOT read raw test output, logs, reports or metadata, and must NOT read a
-  whole result file. Read only the lines: which can make understand why not successfull.

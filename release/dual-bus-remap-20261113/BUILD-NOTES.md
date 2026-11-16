@@ -22,7 +22,7 @@ ELF and linker map files are included alongside both STM32 images.
   Brownout detector was triggered during Wi-Fi AP+STA initialization and
   enters a reset loop. Flash verification passed.
   Check the USB supply/cable and measure the ESP32 3.3 V rail under Wi-Fi
-  startup load. Brownout protection was not disabled.
+  startup load.
 
 Both boards were independently USB-powered during programming. They were not
 interconnected, and no external CAN transceiver wiring or vehicle harness was

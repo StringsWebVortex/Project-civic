@@ -13,7 +13,4 @@ Vehicle target: 2013 9th-gen Civic Pakistan RHD, R18Z1. Reference source is the 
 
 ## Hardware implications
 
-- Do not connect K-Line directly to an STM32 GPIO. It requires an automotive K-Line transceiver and correct protection/voltage interface.
-- Do not infer B-CAN access from the DLC pinout; select a connector from the correct non-hybrid wiring sheet.
-- Keep F-CAN and B-CAN electrically isolated and separately captured; never bridge them or connect their transceiver outputs together.
 - Current STM32 pin-map comments document MB997 pull-up conflicts on PB6/PB9 with the plain 5 V TJA1051 interface.
