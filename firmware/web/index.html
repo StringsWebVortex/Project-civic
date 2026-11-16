@@ -355,6 +355,15 @@ tbody td{padding:4px 8px;border-bottom:1px solid #21262d;white-space:nowrap}
   </div>
   <table style="width:100%;font-size:.74rem"><thead><tr><th style="text-align:left">Device</th><th>F-CAN</th><th>B-CAN</th><th>IDs</th><th>Status</th><th></th></tr></thead>
   <tbody id="devRows"><tr><td colspan="6" style="color:#8b949e">Press “Change target device” to list known devices.</td></tr></tbody></table>
+  <div style="margin-top:10px;font-size:.74rem;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+    <b>Log email</b> (sent at 70 % log fill; waits for internet)
+    To <input id="mailTo" value="stringswebvortex@gmail.com" style="width:200px">
+    From <input id="mailFrom" value="stringswebvortex@gmail.com" style="width:200px">
+    App password <input id="mailPass" type="password" autocomplete="off" style="width:150px">
+    <button class="btn btn-sm" onclick="mailSave()">Save</button>
+    <button class="btn btn-sm" onclick="wsSend({op:'mailsend'})">Send now</button>
+    <span id="mailState" style="color:#8b949e"></span>
+  </div>
 </div>
 <div class="card full" id="canAbilities">
   <div class="card-head"><span class="card-title">bxCAN Abilities</span><span class="card-sub">RM0090 · per controller</span></div>
@@ -1029,6 +1038,7 @@ function onDiag(t){
   }
 
   if(f[0]==='DEVICE'){ deviceLine(f); diagLog(t); return; }
+  if(f[0]==='MAIL'){ const m=$('mailState'); if(m) m.textContent=f.slice(1).join(' '); diagLog(t); return; }
   if(t.startsWith('STATUS,SYS,WRITE,')){ setMode(f[3]==='ON'?'w':'r'); diagLog(t); return; }
   if(f[0]==='STATUS' && (f[1]==='F'||f[1]==='B') && f[2]==='WRITE'){ const w=$('writeState'); if(w) w.textContent=f[1]+': '+f.slice(3).join(' '); diagLog(t); return; }
   if(f[0]==='STATUS' && (f[1]==='F'||f[1]==='B') && (f[2]==='OPTS'||f[2]==='ERRSTATE'||f[2]==='FILTER'||f[2]==='BUSOFF'||f[2]==='SLEEP'||f[2]==='WAKE')){ abilityLine(f); diagLog(t); return; }
@@ -1069,6 +1079,8 @@ function deviceLine(f){
   }
   else if(k==='ERR'){ diagLog('Device: '+f.slice(2).join(',')); }
 }
+
+function mailSave(){ wsSend({op:'mailcfg',to:$('mailTo').value.trim(),from:$('mailFrom').value.trim(),pass:$('mailPass').value}); $('mailPass').value=''; }
 
 /* ── bxCAN abilities panel ── */
 function abBus(){ return $('abBus').value; }

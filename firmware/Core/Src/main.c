@@ -63,6 +63,7 @@
 #include "ecu_scan.h"
 #include "can_hw.h"
 #include "device_id.h"
+#include "log_mail.h"
 #include "remote_start.h"
 #include "gear_led.h"
 #ifdef NET_DASHBOARD
@@ -1434,6 +1435,7 @@ int main(void)
     can_hw_set_pclk1(pclk1_hz);
 
     dev_init(dev_global());   /* seed profiles; journal replay adds the saved ones */
+    mail_init(mail_global()); /* default addresses; journal replay restores settings */
     can_capture_queue_init(&capture_queue[0]);
     can_capture_queue_init(&capture_queue[1]);
     for (uint32_t i = 0; i < 2u; i++) { can_profiler_init(&profiler[i]); can_profiler_set_bus(&profiler[i], (uint8_t)i); }

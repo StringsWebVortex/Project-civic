@@ -89,6 +89,19 @@ bool logst_get(bool old, const uint8_t **data, size_t *len)
     return true;
 }
 
+uint32_t logst_fill_permille(void)
+{
+    if (!s_log_ok) return 0u;
+    return (uint32_t)((s_log_len * 1000u) / (FS_SECTOR_128K - HDR_SIZE));
+}
+
+uint32_t logst_seq(void)
+{
+    uint32_t seq = 0u;
+    if (!s_log_ok || !hdr_valid(s_log_cur, LOG_MAGIC, &seq)) return 0u;
+    return seq;
+}
+
 void logst_clear(void)
 {
     if (!s_log_ok) return;

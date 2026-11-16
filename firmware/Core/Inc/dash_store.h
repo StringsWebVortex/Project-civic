@@ -14,6 +14,9 @@ bool logst_ok(void);
 bool logst_append(const char *hdr, const char *line, size_t n);   /* hdr written into an empty file */
 bool logst_get(bool old, const uint8_t **data, size_t *len);      /* false = "file does not exist" */
 void logst_clear(void);
+/* Current sector fill in permille and its sequence number (0 if none). */
+uint32_t logst_fill_permille(void);
+uint32_t logst_seq(void);
 
 /* ── event journal ── */
 enum { EV_REC_EVENT = 2, EV_REC_EVENT_DEL = 3, EV_REC_SNAP_ROW = 4, EV_REC_SNAP_DEL = 5 };

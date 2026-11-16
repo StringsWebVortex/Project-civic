@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "dash.h"
+#include "log_mail.h"
 #include "web_server.h"
 #include "lwip/tcp.h"
 #include "stm32f4xx.h"
@@ -179,6 +180,11 @@ static void test_ws_commands(void)
     clear(); ws("{\"op\":\"can\",\"line\":\"OPT,F,NART,on\"}");  CHECK(has_cmd("OPT,F,NART,on"), "can opt");
     clear(); ws("{\"op\":\"can\",\"line\":\"FILTER,B,20,M,32,1,0,0\"}"); CHECK(has_cmd("FILTER,B,20,M,32,1,0,0"), "can filter");
     clear(); ws("{\"op\":\"can\",\"line\":\"DEVICE,SELECT,2\"}"); CHECK(has_cmd("DEVICE,SELECT,2"), "can device");
+    clear(); ws("{\"op\":\"mailcfg\",\"to\":\"a@b.c\",\"from\":\"a@b.c\",\"pass\":\"pw\"}");
+    CHECK(strcmp(mail_global()->pass, "pw") == 0, "mailcfg stored");
+    clear(); ws("{\"op\":\"mailcfg\",\"to\":\"bad\",\"from\":\"a@b.c\",\"pass\":\"pw\"}");
+    CHECK(strcmp(mail_global()->to, "a@b.c") == 0, "bad mailcfg rejected");
+    clear(); ws("{\"op\":\"mailsend\"}");
     clear(); ws("{\"op\":\"can\",\"line\":\"START\"}");        CHECK(ncmd == 0, "can rejects non-ability verbs");
     clear(); ws("{\"op\":\"periodic\",\"slot\":2,\"bus\":\"F\",\"format\":\"S\",\"id\":\"7df\",\"dlc\":3,\"data\":\"02010c\",\"period\":100}");
     CHECK(has_cmd("PERIODIC,2,F,S,7DF,3,02010C,100"), "periodic");

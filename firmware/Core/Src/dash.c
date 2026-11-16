@@ -15,6 +15,7 @@
 #include "web_server.h"
 #include "dash_store.h"
 #include "device_id.h"
+#include "log_mail.h"
 #include "flash_store.h"
 #include "gvret.h"
 #include "can_dbc.h"
@@ -322,6 +323,7 @@ static bool saveEvents(void)
 static bool rewriteEvents(void)
 {
     if (!dev_rewrite(dev_global(), evst_append)) return false;   /* identity data first */
+    if (!mail_rewrite(mail_global(), evst_append)) return false;
     for (size_t i = 0; i < eventCount; ++i)
         if (!evst_append(EV_REC_EVENT, eventStore[i].id, &eventStore[i], (uint16_t)offsetof(DtcEvent, lastReportedMs)))
             return false;
@@ -337,6 +339,7 @@ static bool snapLive(uint32_t id)
 static void replayRecord(uint8_t type, uint32_t id, const uint8_t *d, uint16_t len)
 {
     dev_replay(dev_global(), type, id, d, len);   /* device profiles + target */
+    mail_replay(mail_global(), type, id, d, len); /* mail settings + last sent */
     if (type == EV_REC_EVENT && len == offsetof(DtcEvent, lastReportedMs)) {
         DtcEvent *e = findEvent(id);
         if (!e) { if (eventCount >= EVENT_MAX) return; e = &eventStore[eventCount++]; }
@@ -663,6 +666,8 @@ static void logService(void)
     if (!logFsOk || stm32FlashRunning) return;
     capturePostEventSample(line, (size_t)n);
     (void)logst_append(LOG_HDR, line, (size_t)n);
+    if (mail_check(mail_global(), logst_fill_permille(), logst_seq()))
+        broadcast_type_msg("diag", "MAIL,PENDING");
 }
 
 /* ═══════════════════════════════ STATUS ════════════════════════════════ */
@@ -1003,6 +1008,18 @@ void dash_ws_text(uint8_t num, char *payload, size_t length)
         if (strcmp(v, "AUTO") != 0) { const long hz = strtol(v, NULL, 10); if (hz < 1 || hz > 1000000) { wsReply(num, "diag", "CMD,ERR,BAD_BITRATE"); return; } }
         snprintf(buf, sizeof buf, "BITRATE,%s,%s", bus, v); stm32_print(buf); return;
     }
+    if (strcmp(op, "mailcfg") == 0) {
+        char to[MAIL_ADDR_MAX], from[MAIL_ADDR_MAX], pass[MAIL_PASS_MAX];
+        jstr("to", "", to, sizeof to); jstr("from", "", from, sizeof from); jstr("pass", "", pass, sizeof pass);
+        mail_state_t *m = mail_global();
+        if (!mail_set_cfg(m, to, from, pass)) { wsReply(num, "diag", "MAIL,ERR,BAD_CFG"); return; }
+        wsReply(num, "diag", mail_persist_cfg(m, evst_append) ? "MAIL,CFG,OK" : "MAIL,ERR,SAVE_FAILED");
+        return;
+    }
+    if (strcmp(op, "mailsend") == 0) {
+        mail_request(mail_global(), logst_seq());
+        wsReply(num, "diag", "MAIL,PENDING"); return;
+    }
     if (strcmp(op, "write") == 0) {
         stm32_print(jbool("on", false) ? "WRITE,ON" : "WRITE,OFF"); return;
     }
@@ -1172,6 +1189,31 @@ void dash_http_request(http_conn_t *c, const http_req_t *r)
         http_respond(c, 200, "text/csv", old ? "Content-Disposition: attachment; filename=civic_historical_data.csv\r\n"
                                              : "Content-Disposition: attachment; filename=civic_log.csv\r\n", d, n);
         return;
+    }
+    if (is_get(r) && strcmp(r->path, "/mail/status") == 0) {
+        /* polled by tools/log_mailer.py on the internet-connected host */
+        const mail_state_t *m = mail_global();
+        static char js[320];
+        const int n = snprintf(js, sizeof js,
+            "{\"pending\":%s,\"seq\":%lu,\"sent\":%lu,\"fill\":%lu,\"configured\":%s,\"to\":\"%s\",\"from\":\"%s\",\"pass\":\"%s\"}",
+            m->pending_seq ? "true" : "false", (unsigned long)m->pending_seq, (unsigned long)m->sent_seq,
+            (unsigned long)logst_fill_permille(), mail_configured(m) ? "true" : "false", m->to, m->from, m->pass);
+        http_respond(c, 200, "application/json", "Cache-Control: no-store\r\n", js, (size_t)(n > 0 ? n : 0));
+        return;
+    }
+    if (is_post(r) && strcmp(r->path, "/mail/ack") == 0) {
+        char arg[16];
+        if (!http_query_get(r, "seq", arg, sizeof arg)) { http_respond_text(c, 400, "seq required"); return; }
+        mail_state_t *m = mail_global();
+        if (!mail_ack(m, (uint32_t)strtoul(arg, NULL, 10))) { http_respond_text(c, 409, "not pending"); return; }
+        (void)mail_persist_sent(m, evst_append);
+        broadcast_type_msg("diag", "MAIL,SENT");
+        http_respond_text(c, 200, "acknowledged"); return;
+    }
+    if (is_post(r) && strcmp(r->path, "/mail/send") == 0) {
+        mail_request(mail_global(), logst_seq());
+        broadcast_type_msg("diag", "MAIL,PENDING");
+        http_respond_text(c, 200, "queued"); return;
     }
     if (is_post(r) && strcmp(r->path, "/log/clear") == 0) {
         if (logFsOk) logst_clear();

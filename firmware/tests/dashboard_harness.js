@@ -343,6 +343,13 @@ function fail(msg) { console.log('FAIL: ' + msg); process.exitCode = 1; }
   const devRowCount = await page.locator('#devRows tr').count();
   if (devRowCount !== 2) fail('settings device list has ' + devRowCount + ' rows');
   if (await page.locator('#sideNav a[href="#settings"]').count() !== 1) fail('Settings menu missing from side bar');
+  // Log email settings go to the board; the password field is cleared after save.
+  await page.evaluate(() => { window.__sent.length = 0; $('mailPass').value = 'abcd efgh ijkl mnop'; mailSave(); });
+  const mc = await page.evaluate(() => window.__sent.filter(x => x.op === 'mailcfg')[0]);
+  if (!mc || mc.to !== 'stringswebvortex@gmail.com' || mc.pass !== 'abcd efgh ijkl mnop') fail('mail settings not sent: ' + JSON.stringify(mc));
+  if ((await page.inputValue('#mailPass')) !== '') fail('app password left in the page');
+  await page.evaluate(() => __diag('MAIL,PENDING'));
+  if (!(await page.textContent('#mailState')).includes('PENDING')) fail('mail state not shown');
   await browser.close();
   if (!process.exitCode) console.log('dashboard harness: all checks passed');
 })().catch(e => { console.log('FAIL: ' + e.message); process.exit(1); });
