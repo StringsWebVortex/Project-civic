@@ -33,6 +33,11 @@ void can_profiler_init(can_profiler_t *p)
     p->min_interval_ms = UINT32_MAX;
 }
 
+void can_profiler_set_bus(can_profiler_t *p, uint8_t bus)
+{
+    if (p != NULL) p->bus = bus;
+}
+
 /* Exponential moving average: alpha=1/8 (shift by 3) */
 static uint32_t ema_update(uint32_t prev, uint32_t sample)
 {
@@ -110,8 +115,10 @@ void can_profiler_update(can_profiler_t *p, const can_capture_frame_t *frame)
     /* Recompute rate every frame using 64-bit intermediate to prevent overflow.
      * frame_count × 10000 overflows uint32 at ~429k frames (~75 min @95 Hz).
      * Using uint64 prevents that entirely. */
-    const uint32_t elapsed = (now >= entry->first_ts_ms)
-                             ? (now - entry->first_ts_ms + 1u) : 1u;
+    /* Keep the +1 in 64-bit space: a full-range timestamp delta
+     * (0 -> UINT32_MAX) is 2^32 ms and must not wrap elapsed to zero. */
+    const uint64_t elapsed = (now >= entry->first_ts_ms)
+                             ? ((uint64_t)(now - entry->first_ts_ms) + 1u) : 1u;
     const uint64_t r64 = ((uint64_t)entry->frame_count * 10000u) / elapsed;
     entry->rate_hz_x10 = (uint16_t)(r64 > 65535u ? 65535u : (uint32_t)r64);
 }
@@ -148,12 +155,13 @@ void can_profiler_emit(can_profiler_t *p, uint32_t now_ms,
         int n;
         if (p->emit_part < 0) {
             /* PROFILE line */
-            n = snprintf(line, sizeof line, "PROFILE,%s,%u,%u,%02X,%s\r\n",
+            n = snprintf(line, sizeof line, "PROFILE,%s,%u,%u,%02X,%s,%u\r\n",
                          id_str,
                          (unsigned)e->dlc,
                          (unsigned)e->rate_hz_x10,
                          (unsigned)e->var_mask,
-                         frame_label);
+                         frame_label,
+                         (unsigned)p->bus);
         } else {
             /* SIG line: next variable byte at or after emit_part */
             uint8_t b = (uint8_t)p->emit_part;
@@ -166,14 +174,15 @@ void can_profiler_emit(can_profiler_t *p, uint32_t now_ms,
                 byte_label = db->byte_labels[b];
 
             n = snprintf(line, sizeof line,
-                         "SIG,%s,%u,%02X,%02X,%02X,%u,%s\r\n",
+                         "SIG,%s,%u,%02X,%02X,%02X,%u,%s,%u\r\n",
                          id_str,
                          (unsigned)b,
                          (unsigned)e->byte_last[b],
                          (unsigned)e->byte_min[b],
                          (unsigned)e->byte_max[b],
                          (unsigned)e->rate_hz_x10,
-                         byte_label);
+                         byte_label,
+                         (unsigned)p->bus);
         }
         /* A line that does not fit the buffer is skipped (never cut). */
         if (n > 0 && (size_t)n < sizeof line && !write_fn(line)) return;  /* resume here */

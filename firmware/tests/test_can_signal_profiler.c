@@ -175,6 +175,19 @@ int main(void)
         assert(nseen == 0);
     }
 
+    /* ── Full-range timestamp delta must not wrap elapsed to zero ─── */
+    {
+        can_profiler_t edge;
+        uint8_t d[] = {0x42};
+        can_profiler_init(&edge);
+        can_capture_frame_t f = make_frame(0x555u, 0u, d, 1u);
+        can_profiler_update(&edge, &f);
+        f.timestamp_ms = UINT32_MAX;
+        can_profiler_update(&edge, &f);
+        /* 2 frames over 2^32 ms rounds to 0 tenths of Hz. */
+        assert(edge.entries[0].rate_hz_x10 == 0u);
+    }
+
     /* ── NULL safety ──────────────────────────────────────────────── */
     can_profiler_init(NULL); /* no crash */
     can_profiler_update(NULL, NULL); /* no crash */

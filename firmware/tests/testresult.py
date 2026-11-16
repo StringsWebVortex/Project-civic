@@ -117,8 +117,23 @@ def _execute(argv: list[str], timeout: float, env: dict | None = None):
         out, _ = proc.communicate(timeout=timeout)
         return proc.returncode, out.decode("utf-8", "replace"), False
     except subprocess.TimeoutExpired:
-        os.killpg(proc.pid, signal.SIGKILL)
+        # communicate() can time out because a forked child inherited stdout,
+        # even when the test process itself has already crashed/exited. Capture
+        # the parent status before killing the process group to close orphaned
+        # pipe handles, so a SIGSEGV is not misclassified as TIMEOUT.
+        # A crashing process may still be writing its core dump; give it a
+        # short grace period to finish dying before classifying as TIMEOUT.
+        try:
+            exited_rc = proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            exited_rc = None
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
         out, _ = proc.communicate()
+        if exited_rc is not None:
+            return exited_rc, out.decode("utf-8", "replace"), False
         return None, out.decode("utf-8", "replace"), True
 
 

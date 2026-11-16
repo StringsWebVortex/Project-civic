@@ -10,3 +10,4 @@ docs/reference/*.pdf
 firmware/tests/results/
 firmware/node_modules/
 .scratch/
+docs/*.pdf

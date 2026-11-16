@@ -50,6 +50,19 @@ class RecorderTests(unittest.TestCase):
         line = self.run_rec("hang", sys.executable, "-c", "import time; time.sleep(30)", timeout="1")[-1]
         self.assertIn("result=TIMEOUT after 1s", line)
 
+    def test_crash_with_inherited_pipe_is_not_misclassified_as_timeout(self):
+        # The child keeps stdout open after the parent crashes; communicate()
+        # times out while waiting for EOF although the test process is SIGSEGV.
+        code = (
+            "import os, signal, time\n"
+            "pid = os.fork()\n"
+            "if pid == 0:\n    time.sleep(5)\n    os._exit(0)\n"
+            "os.kill(os.getpid(), signal.SIGSEGV)\n"
+        )
+        line = self.run_rec("crash_pipe", sys.executable, "-c", code, timeout="1")[-1]
+        self.assertIn("result=CRASHED SIGSEGV", line)
+        self.assertNotIn("TIMEOUT", line)
+
     def test_skip_exit_records_skipped(self):
         code = "import sys\nprint('SKIPPED: node not installed')\nsys.exit(77)"
         line = self.run_rec("skip", sys.executable, "-c", code)[-1]

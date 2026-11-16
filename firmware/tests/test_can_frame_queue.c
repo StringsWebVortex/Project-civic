@@ -57,10 +57,11 @@ int main(void)
     in.extended = 1u;
     in.remote = 0u;
     in.dlc = 2u;
+    in.bus = 0u;
     in.data[0] = 0x02u;
     in.data[1] = 0xA5u;
     assert(can_capture_frame_to_csv(&in, csv, sizeof csv) > 0u);
-    assert(strcmp(csv, "1234,EXT,18DAF110,2,0,02A5\n") == 0);
+    assert(strcmp(csv, "1234,EXT,18DAF110,2,0,02A5,0\n") == 0);
     assert(can_capture_frame_to_csv(&in, csv, 4u) == 0u);
     assert(can_capture_frame_to_csv(0, csv, sizeof csv) == 0u);
     assert(can_capture_frame_to_csv(&in, 0, sizeof csv) == 0u);
@@ -71,13 +72,13 @@ int main(void)
     in.remote = 1u;
     in.dlc = 0u;
     assert(can_capture_frame_to_csv(&in, csv, sizeof csv) > 0u);
-    assert(strcmp(csv, "1234,STD,7DF,0,1,\n") == 0);
+    assert(strcmp(csv, "1234,STD,7DF,0,1,,0\n") == 0);
 
     /* RTR DLC is requested length, not a payload byte count. */
     in.dlc = 8u;
     memset(in.data, 0xEE, sizeof in.data);
     assert(can_capture_frame_to_csv(&in, csv, sizeof csv) > 0u);
-    assert(strcmp(csv, "1234,STD,7DF,8,1,\n") == 0);
+    assert(strcmp(csv, "1234,STD,7DF,8,1,,0\n") == 0);
 
     /* Reject invalid DLC and IDs; counted as "rejected", not as overflow "dropped". */
     can_capture_queue_init(&q);

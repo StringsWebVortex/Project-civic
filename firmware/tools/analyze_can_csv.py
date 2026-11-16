@@ -23,9 +23,16 @@ class MessageStats:
     rtr_count: int = 0
 
 def parse_row(row: list[str], line_number: int):
-    if len(row) != 6:
-        raise ValueError(f"line {line_number}: expected 6 fields, got {len(row)}")
-    ts_s, fmt, id_s, dlc_s, rtr_s, payload_s = (v.strip() for v in row)
+    # 6-field (legacy) or 7-field (with trailing source-bus column) rows.
+    if len(row) not in (6, 7):
+        raise ValueError(f"line {line_number}: expected 6 or 7 fields, got {len(row)}")
+    fields = [v.strip() for v in row]
+    if len(fields) == 7:
+        bus_s = fields[6]
+        if bus_s not in ("0", "1"):
+            raise ValueError(f"line {line_number}: bus column must be 0 or 1")
+        fields = fields[:6]
+    ts_s, fmt, id_s, dlc_s, rtr_s, payload_s = fields
     try:
         ts, identifier, dlc, rtr = int(ts_s, 10), int(id_s, 16), int(dlc_s, 10), int(rtr_s, 10)
     except ValueError as exc:

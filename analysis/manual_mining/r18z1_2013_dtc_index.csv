@@ -1,0 +1,141 @@
+code,title,detection,mil,description,detail_page
+P0101,DTC P0101: MAF SENSOR CIRCUIT RANGE/PERFORMANCE PROBLEM (KA KC KL MODELS EXCEPT K24Z7),two-drive-cycle marker,ON,Mass Air Flow (MAF) Sensor Circuit Range/Performance Problem,../pages/17893.html
+P0102,DTC P0102: MAF SENSOR CIRCUIT LOW VOLTAGE ('13: EXCEPT K24Z7),other/no marker shown,ON,Mass Air Flow (MAF) Sensor Circuit Low Voltage,../pages/17897.html
+P0103,DTC P0103: MAF SENSOR CIRCUIT HIGH VOLTAGE ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,Mass Air Flow (MAF) Sensor Circuit High Voltage,../pages/17899.html
+P0107,DTC P0107: MAP SENSOR CIRCUIT LOW VOLTAGE ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,Manifold Absolute Pressure (MAP) Sensor Circuit Low Voltage,../pages/17902.html
+P0108,DTC P0108: MAP SENSOR CIRCUIT HIGH VOLTAGE ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,Manifold Absolute Pressure (MAP) Sensor Circuit High Voltage,../pages/17905.html
+P0111,DTC P0111: IAT SENSOR CIRCUIT RANGE/PERFORMANCE PROBLEM (KA KC KL MODELS R18Z1),two-drive-cycle marker,ON,Intake Air Temperature (IAT) Sensor Circuit Range/Performance Problem,../pages/17909.html
+P0112,DTC P0112: IAT SENSOR CIRCUIT LOW VOLTAGE ('12-'13: EXCEPT K24Z7),two-drive-cycle marker,ON,Intake Air Temperature (IAT) Sensor Circuit Low Voltage,../pages/17910.html
+P0113,DTC P0113: IAT SENSOR CIRCUIT HIGH VOLTAGE ('12-'13: EXCEPT K24Z7),two-drive-cycle marker,ON,Intake Air Temperature (IAT) Sensor Circuit High Voltage,../pages/17913.html
+P0116,DTC P0116: ECT SENSOR 1 CIRCUIT RANGE/PERFORMANCE PROBLEM (KA KC KL MODELS EXCEPT K24Z7),two-drive-cycle marker,ON,Engine Coolant Temperature (ECT) Sensor 1 Circuit Range/Performance Problem,../pages/17917.html
+P0117,DTC P0117: ECT SENSOR 1 CIRCUIT LOW VOLTAGE ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,Engine Coolant Temperature (ECT) Sensor 1 Circuit Low Voltage,../pages/17883.html
+P0118,DTC P0118: ECT SENSOR 1 CIRCUIT HIGH VOLTAGE ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,Engine Coolant Temperature (ECT) Sensor 1 Circuit High Voltage,../pages/17886.html
+P011B,DTC P011B: IAT SENSOR CIRCUIT RANGE/PERFORMANCE PROBLEM ('13-'15: KA KC KL MODELS R18Z1),two-drive-cycle marker,ON,Intake Air Temperature (IAT) Sensor Circuit Range/Performance Problem,../pages/17918.html
+P0122,DTC P0122: TP SENSOR A CIRCUIT LOW VOLTAGE ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,Throttle Position (TP) Sensor A Circuit Low Voltage,../pages/17920.html
+P0123,DTC P0123: TP SENSOR A CIRCUIT HIGH VOLTAGE ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,Throttle Position (TP) Sensor A Circuit High Voltage,../pages/17923.html
+P0125,DTC P0125: ECT SENSOR 1 MALFUNCTION/SLOW RESPONSE (KA KC KL MODELS EXCEPT K24Z7),two-drive-cycle marker,ON,Engine Coolant Temperature (ECT) Sensor 1 Malfunction/Slow Response,../pages/17927.html
+P0128,DTC P0128: COOLING SYSTEM MALFUNCTION (KA KC KL MODELS EXCEPT K24Z7),two-drive-cycle marker,ON,Cooling System Malfunction,../pages/17929.html
+P0133,DTC P0133: A/F SENSOR (SENSOR 1) MALFUNCTION/SLOW RESPONSE (KA KC KL MODELS R18Z1),two-drive-cycle marker,ON,Air Fuel Ratio (A/F) Sensor (Sensor 1) Malfunction/Slow Response,../pages/17931.html
+P0134,DTC P0134: A/F SENSOR (SENSOR 1) HEATER SYSTEM MALFUNCTION (KA KC KL MODELS EXCEPT K24Z7),two-drive-cycle marker,ON,Air Fuel Ratio (A/F) Sensor (Sensor 1) Heater System Malfunction,../pages/17934.html
+P0135,DTC P0135: A/F SENSOR (SENSOR 1) HEATER CIRCUIT MALFUNCTION ('12-'13: EXCEPT K24Z7),two-drive-cycle marker,ON,Air Fuel Ratio (A/F) Sensor (Sensor 1) Heater Circuit Malfunction,../pages/17935.html
+P0137,DTC P0137: SECONDARY HO2S (SENSOR 2) CIRCUIT LOW VOLTAGE ('12-'13: EXCEPT K24Z7),two-drive-cycle marker,ON,Secondary Heated Oxygen Sensor (Secondary HO2S (Sensor 2)) Circuit Low Voltage,../pages/17938.html
+P0138,DTC P0138: SECONDARY HO2S (SENSOR 2) CIRCUIT HIGH VOLTAGE ('12-'13: EXCEPT K24Z7),two-drive-cycle marker,ON,Secondary Heated Oxygen Sensor (Secondary HO2S (Sensor 2)) Circuit High Voltage,../pages/17942.html
+P0139,DTC P0139: SECONDARY HO2S (SENSOR 2) SLOW RESPONSE (EXCEPT K24Z7),two-drive-cycle marker,ON,Secondary Heated Oxygen Sensor (Secondary HO2S (Sensor 2)) Slow Response,../pages/17947.html
+P0141,DTC P0141: SECONDARY HO2S (SENSOR 2) HEATER CIRCUIT MALFUNCTION ('13: EXCEPT K24Z7),two-drive-cycle marker,ON,Secondary Heated Oxygen Sensor (Secondary HO2S (Sensor 2)) Heater Circuit Malfunction,../pages/17951.html
+P0171,DTC P0171: FUEL SYSTEM TOO LEAN (R18Z1),two-drive-cycle marker,ON,Fuel System Too Lean,../pages/17956.html
+P0172,DTC P0172: FUEL SYSTEM TOO RICH (R18Z1),two-drive-cycle marker,ON,Fuel System Too Rich,../pages/17959.html
+P0201,DTC P0201: NO. 1 CYLINDER INJECTOR CIRCUIT MALFUNCTION ('12-'13: R18Z1),other/no marker shown,ON,No. 1 Cylinder Injector Circuit Malfunction,../pages/16634.html
+P0202,DTC P0202: NO. 2 CYLINDER INJECTOR CIRCUIT MALFUNCTION ('12-'13: R18Z1),other/no marker shown,ON,No. 2 Cylinder Injector Circuit Malfunction,../pages/16634.html
+P0203,DTC P0203: NO. 3 CYLINDER INJECTOR CIRCUIT MALFUNCTION ('12-'13: R18Z1),other/no marker shown,ON,No. 3 Cylinder Injector Circuit Malfunction,../pages/16634.html
+P0204,DTC P0204: NO. 4 CYLINDER INJECTOR CIRCUIT MALFUNCTION ('12-'13: R18Z1),other/no marker shown,ON,No. 4 Cylinder Injector Circuit Malfunction,../pages/16634.html
+P0222,DTC P0222: TP SENSOR B CIRCUIT LOW VOLTAGE ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,Throttle Position (TP) Sensor B Circuit Low Voltage,../pages/16637.html
+P0223,DTC P0223: TP SENSOR B CIRCUIT HIGH VOLTAGE ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,Throttle Position (TP) Sensor B Circuit High Voltage,../pages/16640.html
+P0300,DTC P0300: RANDOM MISFIRE DETECTED ('12-'13: R18Z1),two-drive-cycle marker,ON,Random Misfire Detected,../pages/16643.html
+P0301,DTC P0301: NO. 1 CYLINDER MISFIRE DETECTED ('12-'13: R18Z1),two-drive-cycle marker,ON,No. 1 Cylinder Misfire Detected,../pages/16643.html
+P0302,DTC P0302: NO. 2 CYLINDER MISFIRE DETECTED ('12-'13: R18Z1),two-drive-cycle marker,ON,No. 2 Cylinder Misfire Detected,../pages/16643.html
+P0303,DTC P0303: NO. 3 CYLINDER MISFIRE DETECTED ('12-'13: R18Z1),two-drive-cycle marker,ON,No. 3 Cylinder Misfire Detected,../pages/16643.html
+P0304,DTC P0304: NO. 4 CYLINDER MISFIRE DETECTED ('12-'13: R18Z1),two-drive-cycle marker,ON,No. 4 Cylinder Misfire Detected,../pages/16643.html
+P0326,DTC P0326: KNOCK SENSOR MALFUNCTION (KA KC KL MODELS R18Z1),two-drive-cycle marker,ON,Knock Sensor Malfunction,../pages/16648.html
+P0327,DTC P0327: KNOCK SENSOR CIRCUIT LOW VOLTAGE ('12-'13: R18Z1),two-drive-cycle marker,ON,Knock Sensor Circuit Low Voltage,../pages/16649.html
+P0328,DTC P0328: KNOCK SENSOR CIRCUIT HIGH VOLTAGE ('12-'13: R18Z1),two-drive-cycle marker,ON,Knock Sensor Circuit High Voltage,../pages/16652.html
+P0335,DTC P0335: CKP SENSOR NO SIGNAL ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,Crankshaft Position (CKP) Sensor No Signal,../pages/16655.html
+P0339,DTC P0339: CKP SENSOR CIRCUIT INTERMITTENT INTERRUPTION (EXCEPT K24Z7),other/no marker shown,ON,Crankshaft Position (CKP) Sensor Circuit Intermittent Interruption,../pages/16659.html
+P0351,DTC P0351: NO. 1 CYLINDER IGNITION COIL CIRCUIT MALFUNCTION ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,No. 1 Cylinder Ignition Coil Circuit Malfunction,../pages/16663.html
+P0352,DTC P0352: NO. 2 CYLINDER IGNITION COIL CIRCUIT MALFUNCTION ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,No. 2 Cylinder Ignition Coil Circuit Malfunction,../pages/16663.html
+P0353,DTC P0353: NO. 3 CYLINDER IGNITION COIL CIRCUIT MALFUNCTION ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,No. 3 Cylinder Ignition Coil Circuit Malfunction,../pages/16663.html
+P0354,DTC P0354: NO. 4 CYLINDER IGNITION COIL CIRCUIT MALFUNCTION ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,No. 4 Cylinder Ignition Coil Circuit Malfunction,../pages/16663.html
+P0365,DTC P0365: CMP SENSOR CIRCUIT NO SIGNAL ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,Camshaft Position (CMP) Sensor Circuit No Signal,../pages/16682.html
+P0369,DTC P0369: CMP SENSOR CIRCUIT INTERMITTENT INTERRUPTION (EXCEPT K24Z7),other/no marker shown,ON,Camshaft Position (CMP) Sensor Circuit Intermittent Interruption,../pages/16686.html
+P0400,DTC P0400: EGR SYSTEM LEAK DETECTED (KA KC KL MODELS),two-drive-cycle marker,ON,Exhaust Gas Recirculation (EGR) System Leak Detected,../pages/16687.html
+P0401,DTC P0401: EGR INSUFFICIENT FLOW (KA KC KL MODELS),two-drive-cycle marker,ON,Exhaust Gas Recirculation (EGR) Insufficient Flow,../pages/16688.html
+P0404,"DTC P0404: EGR VALVE CIRCUIT RANGE/PERFORMANCE PROBLEM ('12-'13, '14-'15: EXCEPT R18Z1)",two-drive-cycle marker,ON,Exhaust Gas Recirculation (EGR) Valve Circuit Range/Performance Problem,../pages/16689.html
+P0406,"DTC P0406: EGR VALVE POSITION SENSOR CIRCUIT HIGH VOLTAGE ('12-'13, '14-'15: EXCEPT R18Z1)",two-drive-cycle marker,ON,Exhaust Gas Recirculation (EGR) Valve Position Sensor Circuit High Voltage,../pages/16691.html
+P0420,DTC P0420: CATALYST SYSTEM EFFICIENCY BELOW THRESHOLD (EXCEPT K24Z7),two-drive-cycle marker,ON,Catalyst System Efficiency Below Threshold,../pages/16694.html
+P0443,DTC P0443: EVAP CANISTER PURGE VALVE CIRCUIT MALFUNCTION ('13: R18Z1),two-drive-cycle marker,ON,Evaporative Emission (EVAP) Canister Purge Valve Circuit Malfunction,../pages/16698.html
+P0451,DTC P0451: FTP SENSOR CIRCUIT RANGE/PERFORMANCE PROBLEM (KA KC KL MODELS R18Z1),two-drive-cycle marker,ON,Fuel Tank Pressure (FTP) Sensor Circuit Range/Performance Problem,../pages/16701.html
+P0452,DTC P0452: FTP SENSOR CIRCUIT LOW VOLTAGE ('12-'13: KA KC KL MODELS R18Z1),two-drive-cycle marker,ON,Fuel Tank Pressure (FTP) Sensor Circuit Low Voltage,../pages/16702.html
+P0453,DTC P0453: FTP SENSOR CIRCUIT HIGH VOLTAGE ('12-'13: KA KC KL MODELS R18Z1),two-drive-cycle marker,ON,Fuel Tank Pressure (FTP) Sensor Circuit High Voltage,../pages/16705.html
+P0455,DTC P0455: EVAP SYSTEM LARGE LEAK DETECTED (KA KC KL MODELS R18Z1),two-drive-cycle marker,ON,Evaporative Emission (EVAP) System Large Leak Detected,../pages/16709.html
+P0456,DTC P0456: EVAP SYSTEM VERY SMALL LEAK DETECTED (KA KC KL MODELS R18Z1),two-drive-cycle marker,ON,Evaporative Emission (EVAP) System Very Small Leak Detected,../pages/16709.html
+P0457,DTC P0457: EVAP SYSTEM LEAK DETECTED/FUEL FILL CAP LOOSE OR MISSING (KA KC KL MODELS R18Z1),other/no marker shown,OFF,Evaporative Emission (EVAP) System Leak Detected/Fuel Fill Cap Loose or Missing,../pages/16711.html
+P0461,DTC P0461: FUEL LEVEL SENSOR (FUEL GAUGE SENDING UNIT) CIRCUIT RANGE/PERFORMANCE PROBLEM (KA KC KL MODELS R18Z1),other/no marker shown,OFF,Fuel Level Sensor (Fuel Gauge Sending Unit) Circuit Range/Performance Problem,../pages/16713.html
+P0462,DTC P0462: FUEL LEVEL SENSOR (FUEL GAUGE SENDING UNIT) CIRCUIT LOW VOLTAGE (KA KC KL MODELS R18Z1),two-drive-cycle marker,OFF,Fuel Level Sensor (Fuel Gauge Sending Unit) Circuit Low Voltage,../pages/16715.html
+P0463,DTC P0463: FUEL LEVEL SENSOR (FUEL GAUGE SENDING UNIT) CIRCUIT HIGH VOLTAGE (KA KC KL MODELS R18Z1),two-drive-cycle marker,OFF,Fuel Level Sensor (Fuel Gauge Sending Unit) Circuit High Voltage,../pages/16717.html
+P0496,DTC P0496: EVAP SYSTEM HIGH PURGE FLOW DETECTED (KA KC KL MODELS R18Z1),two-drive-cycle marker,ON,Evaporative Emission (EVAP) System High Purge Flow Detected,../pages/16719.html
+P0497,DTC P0497: EVAP SYSTEM LOW PURGE FLOW DETECTED (KA KC KL MODELS R18Z1),two-drive-cycle marker,ON,Evaporative Emission (EVAP) System Low Purge Flow Detected,../pages/16721.html
+P0498,DTC P0498: EVAP CANISTER VENT SHUT VALVE CIRCUIT LOW VOLTAGE ('12-'13: KA KC KL MODELS R18Z1),two-drive-cycle marker,ON,Evaporative Emission (EVAP) Canister Vent Shut Valve Circuit Low Voltage,../pages/16722.html
+P0499,DTC P0499: EVAP CANISTER VENT SHUT VALVE CIRCUIT HIGH VOLTAGE (KA KC KL MODELS R18Z1),two-drive-cycle marker,ON,Evaporative Emission (EVAP) Canister Vent Shut Valve Circuit High Voltage,../pages/16726.html
+P0506,DTC P0506: IDLE CONTROL SYSTEM RPM LOWER THAN EXPECTED (KA KC KL MODELS EXCEPT K24Z7),two-drive-cycle marker,ON,Idle Control System RPM Lower Than Expected,../pages/16730.html
+P0507,DTC P0507: IDLE CONTROL SYSTEM RPM HIGHER THAN EXPECTED (KA KC KL MODELS EXCEPT K24Z7),two-drive-cycle marker,ON,Idle Control System RPM Higher Than Expected,../pages/16732.html
+P050A,DTC P050A: COLD START IDLE AIR CONTROL SYSTEM PERFORMANCE PROBLEM (KA KC KL MODELS R18Z1),two-drive-cycle marker,ON,Cold Start Idle Air Control System Performance Problem,../pages/16734.html
+P050B,DTC P050B: COLD START IGNITION TIMING CONTROL SYSTEM PERFORMANCE PROBLEM (KA KC KL MODELS R18Z1),two-drive-cycle marker,ON,Cold Start Ignition Timing Control System Performance Problem,../pages/16736.html
+P0532,DTC P0532: A/C PRESSURE SENSOR CIRCUIT LOW VOLTAGE ('12-'13: EXCEPT K24Z7),two-drive-cycle marker,OFF,A/C Pressure Sensor Circuit Low Voltage,../pages/16737.html
+P0533,DTC P0533: A/C PRESSURE SENSOR CIRCUIT HIGH VOLTAGE ('12-'13: EXCEPT K24Z7),two-drive-cycle marker,OFF,A/C Pressure Sensor Circuit High Voltage,../pages/16740.html
+P0562,DTC P0562: CHARGING SYSTEM LOW VOLTAGE (EXCEPT K24Z7),other/no marker shown,OFF,Charging System Low Voltage,../pages/16744.html
+P0563,DTC P0563: ECM/PCM POWER SOURCE CIRCUIT UNEXPECTED VOLTAGE ('12-'13: EXCEPT K24Z7),two-drive-cycle marker,OFF,Engine Control Module (ECM)/Powertrain Control Module (PCM) Power Source Circuit Unexpected Voltage,../pages/16745.html
+P0602,DTC P0602: ECM/PCM PROGRAMMING ERROR (EXCEPT K24Z7),other/no marker shown,ON,Engine Control Module (ECM)/Powertrain Control Module (PCM) Programming Error,../pages/16752.html
+P060A,DTC P060A: ECM/PCM INTERNAL CONTROL MODULE MALFUNCTION (EXCEPT K24Z7),other/no marker shown,ON,Engine Control Module (ECM)/Powertrain Control Module (PCM) Internal Control Module Malfunction,../pages/16756.html
+P062F,DTC P062F: ECM/PCM INTERNAL CONTROL MODULE KEEP ALIVE MEMORY (KAM) ERROR (EXCEPT K24Z7),other/no marker shown,ON,Engine Control Module (ECM)/Powertrain Control Module (PCM) Internal Control Module Keep Alive Memory (KAM) Error,../pages/16764.html
+P0630,DTC P0630: VIN NOT PROGRAMMED OR MISMATCH (EXCEPT K24Z7),other/no marker shown,ON,VIN Not Programmed or Mismatch,../pages/16766.html
+P0641,DTC P0641: SENSOR REFERENCE VOLTAGE A MALFUNCTION ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,Sensor Reference Voltage A Malfunction,../pages/16767.html
+P0651,DTC P0651: SENSOR REFERENCE VOLTAGE B MALFUNCTION ('12-'13: R18Z1),other/no marker shown,ON,Sensor Reference Voltage B Malfunction,../pages/18550.html
+P065A,DTC P065A: ACG NO CHARGING MALFUNCTION (EXCEPT K24Z7),other/no marker shown,OFF,ACG No Charging Malfunction,../pages/18461.html
+P065E,DTC P065E: IMT ACTUATOR CIRCUIT MALFUNCTION ('12-'13: EXCEPT K24Z7),two-drive-cycle marker,OFF,Intake Manifold Tuning (IMT) Actuator Circuit Malfunction,../pages/18554.html
+P0685,DTC P0685: ECM/PCM POWER CONTROL CIRCUIT/INTERNAL CIRCUIT MALFUNCTION (EXCEPT K24Z7),two-drive-cycle marker,ON,Engine Control Module (ECM)/Powertrain Control Module (PCM) Power Control Circuit/Internal Circuit Malfunction,../pages/18463.html
+P06A8,DTC P06A8: INTERNAL VCC POWER MALFUNCTION (EXCEPT K24Z7),other/no marker shown,ON,Internal VCC Power Malfunction,../pages/18464.html
+P0720,DTC P0720: OUTPUT SHAFT (COUNTERSHAFT) SPEED SENSOR CIRCUIT MALFUNCTION (R18Z1 M/T)*1,two-drive-cycle marker,ON,Output Shaft (Countershaft) Speed Sensor Circuit Malfunction,../pages/18577.html
+P1109,DTC P1109: BARO SENSOR CIRCUIT OUT OF RANGE HIGH (EXCEPT K24Z7),two-drive-cycle marker,ON,Barometric Pressure (BARO) Sensor Circuit Out of Range High,../pages/18029.html
+P1116,DTC P1116: ECT SENSOR 1 RANGE/PERFORMANCE PROBLEM (KA KC KL MODELS EXCEPT K24Z7),two-drive-cycle marker,ON,Engine Coolant Temperature (ECT) Sensor 1 Circuit Range/Performance Problem,../pages/18031.html
+P1128,DTC P1128: MAP SENSOR SIGNAL LOWER THAN EXPECTED (KA KC KL MODELS EXCEPT K24Z7),two-drive-cycle marker,ON,Manifold Absolute Pressure (MAP) Sensor Signal Lower Than Expected,../pages/18033.html
+P1129,DTC P1129: MAP SENSOR SIGNAL HIGHER THAN EXPECTED (KA KC KL MODELS EXCEPT K24Z7),two-drive-cycle marker,ON,Manifold Absolute Pressure (MAP) Sensor Signal Higher Than Expected,../pages/18035.html
+P1157,DTC P1157: A/F SENSOR (SENSOR 1) AFS CIRCUIT HIGH VOLTAGE ('12-'13: EXCEPT K24Z7),two-drive-cycle marker,ON,Air Fuel Ratio (A/F) Sensor (Sensor 1) AFS Circuit High Voltage,../pages/18036.html
+P1172,DTC P1172: A/F SENSOR (SENSOR 1) CIRCUIT OUT OF RANGE HIGH (KA KC KL MODELS EXCEPT K24Z7),two-drive-cycle marker,ON,Air Fuel Ratio (A/F) Sensor (Sensor 1) Circuit Out of Range High,../pages/18040.html
+P1297,DTC P1297: ELD CIRCUIT LOW VOLTAGE ('12-'13: KA KC KL MODELS EXCEPT K24Z7),two-drive-cycle marker,OFF,Electrical Load Detector (ELD) Circuit Low Voltage,../pages/18045.html
+P1298,DTC P1298: ELD CIRCUIT HIGH VOLTAGE ('13: KA KC KL MODELS EXCEPT K24Z7),two-drive-cycle marker,OFF,Electrical Load Detector (ELD) Circuit High Voltage,../pages/18051.html
+P1454,DTC P1454: FTP SENSOR RANGE/PERFORMANCE PROBLEM; DTC P2422: EVAP CANISTER VENT SHUT VALVE STUCK CLOSED MALFUNCTION (KA KC KL MODELS R18Z1),two-drive-cycle marker,ON,Fuel Tank Pressure (FTP) Sensor Range/ Performance Problem,../pages/18054.html
+P1458,DTC P1458: FTP SENSOR CIRCUIT RANGE/PERFORMANCE PROBLEM (KA KC KL MODELS R18Z1),two-drive-cycle marker,ON,Fuel Tank Pressure (FTP) Sensor Circuit Range/Performance Problem,../pages/18056.html
+P145C,DTC P145C: EVAP SYSTEM PURGE FLOW MALFUNCTION (KA KC KL MODELS R18Z1),two-drive-cycle marker,ON,Evaporative Emission (EVAP) System Purge Flow Malfunction,../pages/18058.html
+P1549,DTC P1549: CHARGING SYSTEM HIGH VOLTAGE (EXCEPT K24Z7),other/no marker shown,OFF,Charging System High Voltage,../pages/18060.html
+P154A,DTC P154A: BATTERY SENSOR INTERNAL FAILURE (EXCEPT K24Z7),other/no marker shown,OFF,Battery Sensor Internal Failure,../pages/18062.html
+P1658,DTC P1658: ETCS CONTROL RELAY ON MALFUNCTION ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,Electronic Throttle Control System (ETCS) Control Relay ON Malfunction,../pages/18063.html
+P1659,DTC P1659: ETCS CONTROL RELAY OFF MALFUNCTION ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,Electronic Throttle Control System (ETCS) Control Relay OFF Malfunction,../pages/18066.html
+P1683,DTC P1683: THROTTLE VALVE DEFAULT POSITION SPRING PERFORMANCE PROBLEM (EXCEPT K24Z7),other/no marker shown,ON,Throttle Valve Default Position Spring Performance Problem,../pages/18070.html
+P1684,DTC P1684: THROTTLE VALVE RETURN SPRING PERFORMANCE PROBLEM (EXCEPT K24Z7),other/no marker shown,ON,Throttle Valve Return Spring Performance Problem,../pages/18072.html
+P16BB,DTC P16BB: ALTERNATOR B TERMINAL CIRCUIT LOW VOLTAGE (EXCEPT K24Z7),other/no marker shown,OFF,Alternator B Terminal Circuit Low Voltage,../pages/18074.html
+P16E2,DTC P16E2: PGM-FI-ACG LIN COMMUNICATION ERROR ('12-'13: EXCEPT K24Z7),other/no marker shown,OFF,PGM-FI-ACG LIN Communication Error,../pages/18075.html
+P16E3,DTC P16E3: PGM-FI-BATTERY SENSOR LIN COMMUNICATION ERROR ('12-'13: EXCEPT K24Z7),other/no marker shown,OFF,PGM-FI-Battery Sensor LIN Communication Error,../pages/18078.html
+P16E4,DTC P16E4: ACG HIGH-TEMPERATURE (EXCEPT K24Z7),other/no marker shown,OFF,ACG High-temperature,../pages/18082.html
+P2096,DTC P2096: POST CATALYST FUEL TRIM SYSTEM TOO LEAN ('13-'15: KA KC KL MODELS R18Z1),two-drive-cycle marker,ON,Post Catalyst Fuel Trim System Too Lean,../pages/18108.html
+P2097,DTC P2097: POST CATALYST FUEL TRIM SYSTEM TOO RICH ('13-'15: KA KC KL MODELS R18Z1),two-drive-cycle marker,ON,Post Catalyst Fuel Trim System Too Rich,../pages/18110.html
+P2101,DTC P2101: ETCS MALFUNCTION ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,Electronic Throttle Control System (ETCS) Malfunction,../pages/18112.html
+P2118,DTC P2118: THROTTLE ACTUATOR CURRENT RANGE/PERFORMANCE PROBLEM ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,Throttle Actuator Current Range/Performance Problem,../pages/18115.html
+P2122,DTC P2122: APP SENSOR A (TP SENSOR D) CIRCUIT LOW VOLTAGE ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,Accelerator Pedal Position (APP) Sensor A (Throttle Position (TP) Sensor D) Circuit Low Voltage,../pages/18118.html
+P2123,DTC P2123: APP SENSOR A (TP SENSOR D) CIRCUIT HIGH VOLTAGE ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,Accelerator Pedal Position (APP) Sensor A (Throttle Position (TP) Sensor D) Circuit High Voltage,../pages/18121.html
+P2127,DTC P2127: APP SENSOR B (TP SENSOR E) CIRCUIT LOW VOLTAGE ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,Accelerator Pedal Position (APP) Sensor B (Throttle Position (TP) Sensor E) Circuit Low Voltage,../pages/18493.html
+P2128,DTC P2128: APP SENSOR B (TP SENSOR E) CIRCUIT HIGH VOLTAGE ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,Accelerator Pedal Position (APP) Sensor B (Throttle Position (TP) Sensor E) Circuit High Voltage,../pages/18495.html
+P2135,DTC P2135: TP SENSOR A/B INCORRECT VOLTAGE CORRELATION ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,Throttle Position (TP) Sensor A/B Incorrect Voltage Correlation,../pages/18497.html
+P2138,DTC P2138: APP SENSOR A/B (TP SENSOR D/E) INCORRECT VOLTAGE CORRELATION ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,Accelerator Pedal Position (APP) Sensor A/B (Throttle Position (TP) Sensor D/E) Incorrect Voltage Correlation,../pages/18499.html
+P2176,DTC P2176: THROTTLE ACTUATOR CONTROL SYSTEM IDLE POSITION NOT LEARNED ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,Throttle Actuator Control System Idle Position Not Learned,../pages/18501.html
+P2183,DTC P2183: ECT SENSOR 2 CIRCUIT RANGE/PERFORMANCE PROBLEM (KA KC KL MODELS EXCEPT K24Z7),two-drive-cycle marker,ON,Engine Coolant Temperature (ECT) Sensor 2 Circuit Range/Performance Problem,../pages/18472.html
+P2184,DTC P2184: ECT SENSOR 2 CIRCUIT LOW VOLTAGE ('12-'13: EXCEPT K24Z7),two-drive-cycle marker,ON,Engine Coolant Temperature (ECT) Sensor 2 Circuit Low Voltage,../pages/18504.html
+P2185,DTC P2185: ECT SENSOR 2 CIRCUIT HIGH VOLTAGE ('12-'13: EXCEPT K24Z7),two-drive-cycle marker,ON,Engine Coolant Temperature (ECT) Sensor 2 Circuit High Voltage,../pages/18506.html
+P2195,DTC P2195: A/F SENSOR (SENSOR 1) SIGNAL STUCK LEAN (KA KC KL MODELS EXCEPT K24Z7),two-drive-cycle marker,ON,Air Fuel Ratio (A/F) Sensor (Sensor 1) Signal Stuck Lean,../pages/18475.html
+P219A,DTC P219A: AIR-FUEL RATIO VARIATION OF CYLINDERS (KA KC KL MODELS R18Z1),two-drive-cycle marker,ON,Air Fuel Ratio Variation of Cylinders,../pages/18510.html
+P2227,DTC P2227: BARO SENSOR CIRCUIT RANGE/PERFORMANCE PROBLEM (KA KC KL MODELS EXCEPT K24Z7),two-drive-cycle marker,ON,Barometric Pressure (BARO) Sensor Circuit Range/Performance Problem,../pages/18476.html
+P2228,DTC P2228: BARO SENSOR CIRCUIT LOW VOLTAGE (EXCEPT K24Z7),two-drive-cycle marker,ON,Barometric Pressure (BARO) Sensor Circuit Low Voltage,../pages/18477.html
+P2229,DTC P2229: BARO SENSOR CIRCUIT HIGH VOLTAGE (EXCEPT K24Z7),two-drive-cycle marker,ON,Barometric Pressure (BARO) Sensor Circuit High Voltage,../pages/18478.html
+P2238,DTC P2238: A/F SENSOR (SENSOR 1) AFS+ CIRCUIT LOW VOLTAGE ('12-'13: EXCEPT K24Z7),two-drive-cycle marker,ON,Air Fuel Ratio (A/F) Sensor (Sensor 1) AFS+ Circuit Low Voltage,../pages/18514.html
+P2252,DTC P2252: A/F SENSOR (SENSOR 1) AFS- CIRCUIT LOW VOLTAGE ('12-'13: EXCEPT K24Z7),two-drive-cycle marker,ON,Air Fuel Ratio (A/F) Sensor (Sensor 1) AFS- Circuit Low Voltage,../pages/18517.html
+P2270,DTC P2270: SECONDARY HO2S (SENSOR 2) CIRCUIT SIGNAL STUCK LEAN (EXCEPT K24Z7),two-drive-cycle marker,ON,Secondary Heated Oxygen Sensor (Secondary HO2S (Sensor 2)) Circuit Signal Stuck Lean,../pages/18480.html
+P2413,DTC P2413: EGR SYSTEM MALFUNCTION ('12-'13: R18Z1),two-drive-cycle marker,ON,Exhaust Gas Recirculation (EGR) System Malfunction,../pages/18521.html
+P2422,DTC P2422: EVAP CANISTER VENT SHUT VALVE STUCK CLOSED MALFUNCTION (KA KC KL MODELS R18Z1),two-drive-cycle marker,ON,Evaporative Emission (EVAP) Canister Vent Shut Valve Stuck Closed Malfunction,../pages/18524.html
+P2610,DTC P2610: ECM/PCM IGNITION OFF INTERNAL TIMER MALFUNCTION (EXCEPT K24Z7),other/no marker shown,ON,Engine Control Module (ECM)/Powertrain Control Module (PCM) Ignition Off Internal Timer Malfunction,../pages/18481.html
+P2646,DTC P2646: ROCKER ARM OIL PRESSURE SWITCH CIRCUIT LOW VOLTAGE ('12-'13: KA KC KL MODELS EXCEPT K24Z7),two-drive-cycle marker,ON,Rocker Arm Oil Pressure Switch Circuit Low Voltage,../pages/18526.html
+P2647,DTC P2647: ROCKER ARM OIL PRESSURE SWITCH CIRCUIT HIGH VOLTAGE ('12-'13: KA KC KL MODELS EXCEPT K24Z7),two-drive-cycle marker,ON,Rocker Arm Oil Pressure Switch Circuit High Voltage,../pages/18528.html
+P2648,DTC P2648: ROCKER ARM OIL CONTROL SOLENOID CIRCUIT LOW VOLTAGE ('12-'13: KA KC KL MODELS EXCEPT K24Z7),other/no marker shown,ON,Rocker Arm Oil Control Solenoid Circuit Low Voltage,../pages/18530.html
+P2649,DTC P2649: ROCKER ARM OIL CONTROL SOLENOID CIRCUIT HIGH VOLTAGE ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,Rocker Arm Oil Control Solenoid Circuit High Voltage,../pages/18532.html
+P2A00,DTC P2A00: A/F SENSOR (SENSOR 1) CIRCUIT RANGE/PERFORMANCE PROBLEM (EXCEPT K24Z7),two-drive-cycle marker,ON,Air Fuel Ratio (A/F) Sensor (Sensor 1) Circuit Range/Performance Problem,../pages/18486.html
+U0029,DTC U0029: F-CAN MALFUNCTION (BUS-OFF (ECM/PCM)) (EXCEPT K24Z7),other/no marker shown,ON,F-CAN Malfunction (BUS-OFF (Engine Control Module (ECM)/Powertrain Control Module (PCM)),../pages/18487.html
+U0122,DTC U0122: F-CAN MALFUNCTION (ECM/PCM-VSA MODULATOR-CONTROL UNIT) ('12-'13: EXCEPT K24Z7),other/no marker shown,OFF,F-CAN Malfunction (Engine Control Module (ECM)/Powertrain Control Module (PCM)-VSA Modulator-Control Unit),../pages/18542.html
+U0131,DTC U0131: F-CAN MALFUNCTION (ECM/PCM-EPS CONTROL UNIT) ('12-'13: EXCEPT K24Z7),other/no marker shown,OFF,F-CAN Malfunction (Engine Control Module (ECM)/Powertrain Control Module (PCM)-EPS Control Unit),../pages/18544.html
+U0155,DTC U0155: F-CAN MALFUNCTION (ECM/PCM-GAUGE CONTROL MODULE) ('12-'13: EXCEPT K24Z7),other/no marker shown,ON,F-CAN Malfunction (Engine Control Module (ECM)/Powertrain Control Module (PCM)-Gauge Control Module),../pages/18546.html

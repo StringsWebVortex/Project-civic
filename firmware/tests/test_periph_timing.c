@@ -42,9 +42,9 @@ int main(void)
     for (unsigned i = 0; i < sizeof rates / sizeof rates[0]; i++) check_can(42000000u, rates[i]);
     for (unsigned i = 0; i < sizeof rates / sizeof rates[0]; i++) check_can(16000000u, rates[i]);
     assert(!can_bit_timing(42000000u, 0u, &brr, &brr));
-    /* TJA1051 TXD dominant time-out: no transmit below 40 kbit/s */
-    assert(can_tx_bitrate_allowed(500000u) && can_tx_bitrate_allowed(40000u));
-    assert(!can_tx_bitrate_allowed(33333u) && !can_tx_bitrate_allowed(10000u) && !can_tx_bitrate_allowed(0u));
+    /* TJA1051 Rev. 9 TXD dominant time-out: minimum transmit rate 20 kbit/s */
+    assert(can_tx_bitrate_allowed(500000u) && can_tx_bitrate_allowed(125000u) && can_tx_bitrate_allowed(33333u) && can_tx_bitrate_allowed(20000u));
+    assert(!can_tx_bitrate_allowed(19999u) && !can_tx_bitrate_allowed(10000u) && !can_tx_bitrate_allowed(0u));
     puts("PASS: periph_timing - USART BRR (OVER16/OVER8) and CAN bit timing at 42 MHz and 16 MHz");
     return 0;
 }

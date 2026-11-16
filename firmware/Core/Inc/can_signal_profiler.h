@@ -63,12 +63,18 @@ typedef struct {
     uint8_t          emit_active;    /* 1 = cycle in progress            */
     uint32_t         emit_idx;       /* entry being written              */
     int8_t           emit_part;      /* -1 = PROFILE line, 0..7 = SIG    */
+    uint8_t          bus;            /* source bus tag (0=CAN1,1=CAN2),
+                                        appended as the last CSV field    */
 } can_profiler_t;
 
 /* Emit interval: send PROFILE + SIG lines every this many ms */
 #define PROFILER_EMIT_INTERVAL_MS 2000u
 
 void can_profiler_init(can_profiler_t *p);
+
+/* Tag this profiler's PROFILE/SIG output lines with a source-bus number
+ * (appended as the final CSV field). Call after can_profiler_init(). */
+void can_profiler_set_bus(can_profiler_t *p, uint8_t bus);
 
 /*
  * can_profiler_update() — feed one dequeued frame into the profiler.

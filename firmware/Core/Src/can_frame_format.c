@@ -2,16 +2,20 @@
 #include <stdio.h>
 
 /*
- * CSV format: timestamp_us,format,id,dlc,rtr,payload_hex\n  (TIM2 1 us counter, wraps at 2^32)
+ * CSV format: timestamp_us,format,id,dlc,rtr,payload_hex,bus\n  (TIM2 1 us counter, wraps at 2^32)
  *
  * ID is emitted WITHOUT a "0x" prefix so it matches the format used by
  * can_signal_profiler.c (PROFILE/SIG lines also have no "0x"), allowing
  * the ESP32 dashboard to key both frame stats and profile data on the
  * same plain-hex string (e.g. "300", "7E8").
  *
- *   STD example: 12345,STD,7E8,8,0,0441050000000000\n
- *   EXT example: 67890,EXT,18DAF110,8,0,03410C3A00000000\n
- *   RTR example: 500,STD,7DF,8,1,\n
+ * The 7th field is the source bus (0 = CAN1/F-CAN, 1 = CAN2/B-CAN). It is
+ * appended (not inserted) so a six-field reader of older captures still works;
+ * the offline analyzer accepts both 6- and 7-field rows.
+ *
+ *   STD example: 12345,STD,7E8,8,0,0441050000000000,0\n
+ *   EXT example: 67890,EXT,18DAF110,8,0,03410C3A00000000,0\n
+ *   RTR example: 500,STD,7DF,8,1,,1\n
  */
 size_t can_capture_frame_to_csv(const can_capture_frame_t *f, char *out, size_t capacity)
 {
@@ -38,6 +42,9 @@ size_t can_capture_frame_to_csv(const can_capture_frame_t *f, char *out, size_t 
         if (n != 2) return 0u;
         used += 2u;
     }
+    n = snprintf(out + used, capacity - used, ",%u", (unsigned)(f->bus & 1u));
+    if (n < 0 || (size_t)n >= capacity - used) return 0u;
+    used += (size_t)n;
     if (used + 1u >= capacity) return 0u;
     out[used++] = '\n';
     out[used]   = '\0';

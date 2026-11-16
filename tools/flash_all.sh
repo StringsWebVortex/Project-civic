@@ -62,8 +62,8 @@ restore_stm() {
   [ "$STM_TOUCHED" = 1 ] || return 0
   [ -s "$STM_BACKUP" ] || { echo "RESTORE STM32: no backup, cannot restore"; return 1; }
   step "RESTORE STM32 from $STM_BACKUP"
-  st-flash write "$STM_BACKUP" "$STM_BASE" \
-    && st-flash read "$STM_READBACK" "$STM_BASE" "$STM_SIZE" \
+  st-flash --connect-under-reset write "$STM_BACKUP" "$STM_BASE" \
+    && st-flash --connect-under-reset read "$STM_READBACK" "$STM_BASE" "$STM_SIZE" \
     && cmp -s "$STM_BACKUP" "$STM_READBACK" \
     && st-flash reset \
     && echo "RESTORE STM32: verified OK" \
@@ -110,10 +110,14 @@ echo "tools OK"
 # ── 2. Gate: build + every recorded test must be 100% in THIS run ──────
 step "2/7 Gate: lint, host tests, sanitizer tests, STM32 + ESP32 builds"
 GATE_START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-(cd "$FW" && make -s lint test-host test-sanitize test-build && make -s test-esp32 PIO="$PIO") >/dev/null 2>&1
-REQUIRED="lint_firmware build_firmware build_firmware_rx image_has_tx_code build_esp32_dashboard
+VENV_PYTHON="/home/s752/Structured-Data/venv/bin/python3"
+[ -x "$VENV_PYTHON" ] || VENV_PYTHON="$(command -v python3)"
+(cd "$FW" && make -s lint test-host test-sanitize test-build PYTHON="$VENV_PYTHON" && make -s test-esp32 PIO="$PIO") >/dev/null 2>&1
+REQUIRED="lint_firmware build_firmware image_has_full_code build_usb_firmware image_has_usb_cdc build_esp32_dashboard
  test_periph_timing test_can_frame_queue test_obd2_decoder test_can_signal_profiler test_isotp_uds test_ecu_scan
- test_can_frame_queue_san test_obd2_decoder_san test_can_signal_profiler_san test_isotp_uds_san test_ecu_scan_san"
+ test_gvret test_gvret_bridge test_usb_tx_queue test_remote_start test_can_filter test_gear_led
+ test_can_frame_queue_san test_obd2_decoder_san test_can_signal_profiler_san test_isotp_uds_san test_ecu_scan_san test_gvret_bridge_san test_usb_tx_queue_san test_gear_led_san
+ py.test_dashboard_ui.DashboardUiTest.test_dashboard_diagnostics_ui"
 for t in $REQUIRED; do
   line="$(cd "$FW" && make -s result T="$t")"
   ts="$(printf '%s' "$line" | awk '{print $2}')"
@@ -161,7 +165,7 @@ echo "ESP32 on $ESP_PORT"
 
 # ── 5. Read-back backups (whole flash of both boards) ──────────────────
 step "5/7 Backup STM32 1 MiB -> $STM_BACKUP"
-st-flash read "$STM_BACKUP" "$STM_BASE" "$STM_SIZE" || fail "STM32 backup read failed"
+st-flash --connect-under-reset read "$STM_BACKUP" "$STM_BASE" "$STM_SIZE" || fail "STM32 backup read failed"
 [ "$(stat -c %s "$STM_BACKUP")" = "$STM_SIZE" ] || fail "STM32 backup size wrong"
 step "5/7 Backup ESP32 4 MiB -> $ESP_BACKUP (about 2 minutes)"
 esp --after no_reset read_flash 0x0 "$ESP_SIZE" "$ESP_BACKUP" || fail "ESP32 backup read failed"
@@ -171,8 +175,8 @@ sha256sum "$STM_BACKUP" "$ESP_BACKUP"
 # ── 6. Flash + verify STM32 ────────────────────────────────────────────
 step "6/7 Flash STM32 $STM_BIN @ $STM_BASE"
 STM_TOUCHED=1
-st-flash write "$STM_BIN" "$STM_BASE" || fail "STM32 write failed"
-st-flash read "$STM_READBACK" "$STM_BASE" "$(stat -c %s "$STM_BIN")" || fail "STM32 read-back failed"
+st-flash --connect-under-reset write "$STM_BIN" "$STM_BASE" || fail "STM32 write failed"
+st-flash --connect-under-reset read "$STM_READBACK" "$STM_BASE" "$(stat -c %s "$STM_BIN")" || fail "STM32 read-back failed"
 cmp "$STM_BIN" "$STM_READBACK" || fail "STM32 verify mismatch (read-back differs from image)"
 st-flash reset || fail "STM32 reset failed"
 echo "STM32 verified: read-back equals image"

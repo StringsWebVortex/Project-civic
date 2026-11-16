@@ -4,9 +4,14 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#ifdef NET_DASHBOARD
+/* No ESP32 reader on USART3 any more: a small ring keeps the line alive. */
+#define UART_TX_RING_SIZE 1024u
+#else
 #define UART_TX_RING_SIZE 8192u
+#endif
 
-/* Initialise DMA1 Stream6 Channel4 for USART2 TX (call after USART2 init). */
+/* Initialise DMA1 Stream3 Channel4 for USART3 TX (call after USART3 init). */
 void uart_dma_init(void);
 
 /* Queue a whole line or nothing. Returns false (and counts a dropped line)
@@ -21,5 +26,5 @@ uint32_t uart_dma_dropped_lines(void);
 uint32_t uart_dma_free(void);
 uint32_t uart_dma_errors(void);
 
-void DMA1_Stream6_IRQHandler(void);
+void DMA1_Stream3_IRQHandler(void);
 #endif

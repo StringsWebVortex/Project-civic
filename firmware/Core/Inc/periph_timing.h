@@ -15,12 +15,12 @@ bool usart_brr_for(uint32_t pclk, uint32_t baud, uint32_t *brr, bool *over8);
  * Fails if no setting is within 0.5 %. */
 bool can_bit_timing(uint32_t pclk, uint32_t bitrate, uint32_t *btr, uint32_t *actual);
 
-/* Lowest bitrate the TJA1051 can transmit at: its TXD dominant time-out
- * (tto(dom)TXD min 0.3 ms) "defines the minimum possible bit rate of
- * 40 kbit/s" (NXP TJA1051 data sheet Rev. 02, Section 6.2.1 and Table 7,
- * docs/TJA1051.PDF). Below it the transceiver can cut a dominant phase in the
- * middle of a frame, so the firmware never leaves silent mode there.
- * Receiving at lower rates (silent scan) is not affected. */
-#define TJA1051_MIN_TX_BITRATE 40000u
+/* Lowest bitrate the TJA1051 can transmit at. NXP TJA1051 data sheet Rev. 9,
+ * 28-Nov-2017, Section 7.2.1 states the TXD dominant-timeout function defines
+ * a 20 kbit/s minimum (the owner's specified TJA1051 marking with pin 5 NC; pin 5 NC).
+ * Keep ARM blocked below the published device limit.
+ * The older Rev. 02 PDF bundled in docs/TJA1051.PDF incorrectly/previously
+ * reports 40 kbit/s; use the newer NXP Rev. 9 datasheet specification. */
+#define TJA1051_MIN_TX_BITRATE 20000u
 bool can_tx_bitrate_allowed(uint32_t bitrate);
 #endif
