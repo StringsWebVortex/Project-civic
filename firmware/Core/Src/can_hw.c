@@ -469,8 +469,14 @@ void can_hw_tx_disarm_hw(can_ctrl_t *c)
     if (!can_hw_set_controller_mode(c, CAN_MODE_SILENT)) c->can_error_count++;
 }
 
+bool can_hw_is_loopback(const can_ctrl_t *c)
+{
+    return c && (c->mode == CAN_MODE_LOOPBACK || c->mode == CAN_MODE_LOOPBACK_SILENT);
+}
+
 bool can_hw_tx_window_open(const can_ctrl_t *c, uint32_t now_ms)
 {
+    if (can_hw_is_loopback(c) && c->current_bitrate) return true;
     if (!c || !c->cfg || !c->tx_armed || c->busoff_seen ||
         c->mode != CAN_MODE_NORMAL ||
         !can_tx_bitrate_allowed(c->current_bitrate)) return false;
@@ -492,9 +498,12 @@ bool can_hw_rate_ok(can_ctrl_t *c, uint32_t now_ms)
 bool can_hw_load_mailbox(can_ctrl_t *c, uint32_t id, bool ext, bool rtr,
                          const uint8_t *data, uint8_t dlc, bool quiet)
 {
-    if (!c || !c->cfg || !c->tx_armed || c->mode != CAN_MODE_NORMAL ||
-        !can_tx_bitrate_allowed(c->current_bitrate) || dlc > 8u ||
-        (!rtr && dlc != 0u && !data)) return false;
+    if (!c || !c->cfg || dlc > 8u || (!rtr && dlc != 0u && !data)) return false;
+    /* Loop-back modes never reach the bus (TJA1051 S HIGH): self-test TX is
+     * allowed in read-only mode. Normal mode needs write mode (armed). */
+    const bool loop = can_hw_is_loopback(c);
+    if (!loop && (!c->tx_armed || c->mode != CAN_MODE_NORMAL ||
+                  !can_tx_bitrate_allowed(c->current_bitrate))) return false;
     CAN_TypeDef *can = c->cfg->can;
     const uint32_t tsr = can->TSR;
     uint32_t mb;

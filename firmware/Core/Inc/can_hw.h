@@ -159,6 +159,8 @@ void can_hw_rx_drain(can_ctrl_t *c, can_capture_queue_t *q, uint8_t fifo, uint32
 /* Status/error interrupt (ESR): updates counters, requests reacquire. */
 void can_hw_sce(can_ctrl_t *c);
 
+/* True in Loopback / Loopback+Silent (bus untouched). */
+bool can_hw_is_loopback(const can_ctrl_t *c);
 /* True while this controller may transmit (armed window open, no bus-off). */
 bool can_hw_tx_window_open(const can_ctrl_t *c, uint32_t now_ms);
 
