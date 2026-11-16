@@ -9,6 +9,7 @@
 #include <string.h>
 #include "dash.h"
 #include "log_mail.h"
+#include "i2c1.h"
 #include "web_server.h"
 #include "lwip/tcp.h"
 #include "stm32f4xx.h"
@@ -50,6 +51,26 @@ void http_respond_stream(http_conn_t *c, int status, const char *ctype, const ch
   uint8_t buf[256]; size_t n; while ((n = gen(ctx, buf, sizeof buf)) > 0 && http_len + n < sizeof http_body) { memcpy(http_body + http_len, buf, n); http_len += n; } http_body[http_len] = 0; }
 bool http_query_get(const http_req_t *r, const char *key, char *out, size_t cap)
 { const char *p = strstr(r->query, key); if (!p) return false; p += strlen(key); if (*p == '=') p++; snprintf(out, cap, "%s", p); return true; }
+
+/* 24LC512 model on the I2C1 bus (address 0x50) */
+static uint8_t ee_mem[65536]; static int ee_present = 1;
+bool i2c1_init(void) { return true; }
+uint32_t i2c1_now_ms(void) { return system_millis; }
+bool i2c1_write(uint8_t a, const uint8_t *w1, size_t n1, const uint8_t *w2, size_t n2)
+{
+    if (!ee_present || a != 0x50) return false;
+    if (n1 + n2 == 0) return true;
+    const unsigned at = (unsigned)(w1[0] << 8 | w1[1]);
+    for (size_t i = 0; i < n2; i++) ee_mem[(at & ~127u) | ((at + i) & 127u)] = w2[i];
+    return true;
+}
+bool i2c1_read(uint8_t a, const uint8_t *w, size_t nw, uint8_t *r, size_t nr)
+{
+    if (!ee_present || a != 0x50 || nw != 2) return false;
+    const unsigned at = (unsigned)(w[0] << 8 | w[1]);
+    for (size_t i = 0; i < nr; i++) r[i] = ee_mem[(at + i) & 0xFFFFu];
+    return true;
+}
 
 /* lwIP stubs */
 static struct tcp_pcb pcbs[64]; static int npcb;
@@ -475,6 +496,22 @@ static void test_signal_learning(void)
           msg_contains("[\"516\",\"ODOMETER\",\"SEED\""), "grades replayed and every DBC message listed");
     clear(); ws("{\"op\":\"sigstates\"}");
     CHECK(msg_contains("[\"17C\",\"POWERTRAIN_DATA\",\"CONFLICT\""), "sigstates on request");
+    /* identity mirrored to the 24LC512 once the bus is quiet */
+    clear(); ws("{\"op\":\"backup\",\"now\":true}"); tick(2500);
+    CHECK(msg_contains("BACKUP,STATUS,PRESENT,"), "EEPROM backup written");
+    /* full flash erase (ST-LINK mass erase): grades come back from the EEPROM */
+    fake_flash_reset(); clear();
+    CHECK(dash_init(cmd_cb, NULL, NULL), "boot on an erased flash");
+    dash_ws_connected(0);
+    CHECK(msg_contains("[\"158\",\"ENGINE_DATA\",\"VERIFIED\"") && msg_contains("BACKUP,STATUS,PRESENT,") &&
+          !msg_contains("BACKUP,STATUS,PRESENT,0,-1"), "identity restored from the EEPROM after a mass erase");
+    /* the restored identity was written back into the flash journal */
+    clear(); CHECK(dash_init(cmd_cb, NULL, NULL), "second boot"); dash_ws_connected(0);
+    CHECK(msg_contains("[\"158\",\"ENGINE_DATA\",\"VERIFIED\"") && msg_contains(",-1\"}"), "journal holds it again (no restore needed)");
+    /* EEPROM absent: backups are skipped, nothing breaks */
+    ee_present = 0; clear(); CHECK(dash_init(cmd_cb, NULL, NULL), "boot without EEPROM"); dash_ws_connected(0);
+    CHECK(msg_contains("BACKUP,STATUS,ABSENT"), "absent EEPROM reported");
+    ee_present = 1; CHECK(dash_init(cmd_cb, NULL, NULL), "EEPROM back");
 }
 
 int main(void)

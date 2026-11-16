@@ -58,8 +58,16 @@ function fail(msg) { console.log('FAIL: ' + msg); process.exitCode = 1; }
   if (!(await page.textContent('#armState')).includes('Disarmed')) fail('bus-tagged DISARM acknowledgement not shown');
 
   // answer the queued UDS requests one by one
+  // Wait (condition, not a fixed sleep) until the page has sent the expected
+  // request: the UI queue paces requests with timers, so a loaded machine is
+  // slower but must not change the outcome.
   async function answer(expectReq, lines, delayMs = 60) {
-    const req = await page.evaluate(() => { const u = window.__sent.filter(x => x.op === 'uds'); return u[u.length - 1]; });
+    const latest = () => page.evaluate(() => { const u = window.__sent.filter(x => x.op === 'uds'); return u[u.length - 1]; });
+    try {
+      await page.waitForFunction((r) => { const u = window.__sent.filter(x => x.op === 'uds'); return u.length && u[u.length - 1].req === r; },
+                                 expectReq, { timeout: 10000, polling: 20 });
+    } catch (e) { /* reported below with the request actually seen */ }
+    const req = await latest();
     if (!req || req.req !== expectReq) { fail('expected request ' + expectReq + ', got ' + JSON.stringify(req)); return false; }
     await page.evaluate((ls) => ls.forEach(l => __diag(l)), lines);
     await page.waitForTimeout(delayMs);

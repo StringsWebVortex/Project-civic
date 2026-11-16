@@ -695,7 +695,7 @@ static bool can_ability_command(const char *cmd, char **save)
 /* ── connected-device identification / target selection ───────────────── */
 #ifdef NET_DASHBOARD
 static bool dev_append(uint8_t type, uint32_t id, const void *data, uint16_t len)
-{ return evst_append(type, id, data, len); }
+{ const bool ok = evst_append(type, id, data, len); dash_identity_changed(); return ok; }
 #else
 static bool dev_append(uint8_t type, uint32_t id, const void *data, uint16_t len)
 { (void)type; (void)id; (void)data; (void)len; return false; }

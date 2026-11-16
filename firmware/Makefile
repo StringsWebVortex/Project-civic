@@ -122,6 +122,9 @@ FIRMWARE_SRCS = \
   Core/Src/device_id.c \
   Core/Src/log_mail.c \
   Core/Src/sig_learn.c \
+  Core/Src/i2c1.c \
+  Core/Src/ee24.c \
+  Core/Src/id_backup.c \
   Core/Src/remote_start.c \
   Core/Src/gear_led.c \
   startup_stm32f407xx.s
@@ -261,12 +264,12 @@ build/test_dash_store_san: tests/test_dash_store.c tests/fake_flash.c Core/Src/d
 
 build/test_dash_bridge: tests/test_dash_bridge.c tests/fake_flash.c Core/Src/dash.c Core/Src/dash_store.c Core/Src/gvret.c Core/Inc/dash.h Core/Inc/web_server.h Core/Src/can_dbc.c build/can_dbc_table.c
 	mkdir -p build
-	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -O2 -DFS_HOST_TEST -Itests/host_shim -ICore/Inc -IMiddlewares/Third_Party/jsmn tests/test_dash_bridge.c tests/fake_flash.c Core/Src/dash.c Core/Src/dash_store.c Core/Src/device_id.c Core/Src/log_mail.c Core/Src/sig_learn.c Core/Src/gvret.c Core/Src/can_frame_queue.c Core/Src/can_dbc.c build/can_dbc_table.c -lm -o $@
+	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -O2 -DFS_HOST_TEST -Itests/host_shim -ICore/Inc -IMiddlewares/Third_Party/jsmn tests/test_dash_bridge.c tests/fake_flash.c Core/Src/dash.c Core/Src/dash_store.c Core/Src/device_id.c Core/Src/log_mail.c Core/Src/sig_learn.c Core/Src/ee24.c Core/Src/id_backup.c Core/Src/gvret.c Core/Src/can_frame_queue.c Core/Src/can_dbc.c build/can_dbc_table.c -lm -o $@
 
 build/test_dash_bridge_san: tests/test_dash_bridge.c tests/fake_flash.c Core/Src/dash.c Core/Src/dash_store.c Core/Src/gvret.c Core/Inc/dash.h Core/Inc/web_server.h Core/Src/can_dbc.c build/can_dbc_table.c
 	mkdir -p build
 	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
-	  -DFS_HOST_TEST -Itests/host_shim -ICore/Inc -IMiddlewares/Third_Party/jsmn tests/test_dash_bridge.c tests/fake_flash.c Core/Src/dash.c Core/Src/dash_store.c Core/Src/device_id.c Core/Src/log_mail.c Core/Src/sig_learn.c Core/Src/gvret.c Core/Src/can_frame_queue.c Core/Src/can_dbc.c build/can_dbc_table.c -lm -o $@
+	  -DFS_HOST_TEST -Itests/host_shim -ICore/Inc -IMiddlewares/Third_Party/jsmn tests/test_dash_bridge.c tests/fake_flash.c Core/Src/dash.c Core/Src/dash_store.c Core/Src/device_id.c Core/Src/log_mail.c Core/Src/sig_learn.c Core/Src/ee24.c Core/Src/id_backup.c Core/Src/gvret.c Core/Src/can_frame_queue.c Core/Src/can_dbc.c build/can_dbc_table.c -lm -o $@
 
 build/test_web_server: tests/test_web_server.c Core/Src/web_server.c Core/Inc/web_server.h
 	mkdir -p build
@@ -299,6 +302,15 @@ build/test_gear_led_san: tests/test_gear_led.c Core/Src/gear_led.c Core/Inc/gear
 	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -O1 -g \
 	  -fsanitize=address,undefined -fno-omit-frame-pointer \
 	  -ICore/Inc tests/test_gear_led.c Core/Src/gear_led.c -o $@
+
+build/test_id_backup: tests/test_id_backup.c Core/Src/ee24.c Core/Src/id_backup.c Core/Inc/ee24.h Core/Inc/id_backup.h
+	mkdir -p build
+	$(HOST_CC) $(HOST_CFLAGS) -ICore/Inc tests/test_id_backup.c Core/Src/ee24.c Core/Src/id_backup.c -o $@
+
+build/test_id_backup_san: tests/test_id_backup.c Core/Src/ee24.c Core/Src/id_backup.c Core/Inc/ee24.h Core/Inc/id_backup.h
+	mkdir -p build
+	$(HOST_CC) $(HOST_CFLAGS) -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -ICore/Inc \
+	  tests/test_id_backup.c Core/Src/ee24.c Core/Src/id_backup.c -o $@
 
 build/test_sig_learn: tests/test_sig_learn.c Core/Src/sig_learn.c Core/Inc/sig_learn.h Core/Src/can_dbc.c build/can_dbc_table.c
 	mkdir -p build
@@ -372,8 +384,8 @@ build/test_ecu_scan_san: tests/test_ecu_scan.c Core/Src/ecu_scan.c Core/Inc/ecu_
 # `make result T=<name>`. Never read the whole result file.
 PYTHON ?= python3
 RECORD = $(PYTHON) tests/testresult.py run
-C_TESTS     = test_sig_learn test_periph_timing test_can_frame_queue test_obd2_decoder test_can_signal_profiler test_isotp_uds test_ecu_scan test_gvret test_gvret_bridge test_usb_tx_queue test_remote_start test_can_filter test_can_opts test_device_id test_log_mail test_gear_led test_dash_store test_dash_bridge test_web_server test_can_dbc
-SAN_TESTS   = test_sig_learn_san test_can_opts_san test_device_id_san test_log_mail_san test_can_frame_queue_san test_obd2_decoder_san test_can_signal_profiler_san test_isotp_uds_san test_ecu_scan_san test_gvret_bridge_san test_usb_tx_queue_san test_gear_led_san test_dash_store_san test_dash_bridge_san test_web_server_san test_can_dbc_san
+C_TESTS     = test_id_backup test_sig_learn test_periph_timing test_can_frame_queue test_obd2_decoder test_can_signal_profiler test_isotp_uds test_ecu_scan test_gvret test_gvret_bridge test_usb_tx_queue test_remote_start test_can_filter test_can_opts test_device_id test_log_mail test_gear_led test_dash_store test_dash_bridge test_web_server test_can_dbc
+SAN_TESTS   = test_id_backup_san test_sig_learn_san test_can_opts_san test_device_id_san test_log_mail_san test_can_frame_queue_san test_obd2_decoder_san test_can_signal_profiler_san test_isotp_uds_san test_ecu_scan_san test_gvret_bridge_san test_usb_tx_queue_san test_gear_led_san test_dash_store_san test_dash_bridge_san test_web_server_san test_can_dbc_san
 
 test-host:
 	@for t in $(C_TESTS); do \

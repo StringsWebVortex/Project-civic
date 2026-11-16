@@ -124,9 +124,11 @@ def main(argv=None):
     ws.send({"op": "can", "line": "DEVICE,STATUS"})
     ws.send({"op": "can", "line": "OPT,F"})
     ws.send({"op": "can", "line": "ERRSTATE,B"})
+    ws.send({"op": "backup"})
+    ws.send({"op": "sigstates"})
     boot = texts(ws.messages(2.0))
     for want in ("STATUS,SYS,WRITE,OFF", "DEVICE,", "STATUS,F,OPTS,ABOM=1,AWUM=1,NART=0,RFLM=0,TXFP=0,TTCM=1,DBF=1,SJW=2",
-                 "STATUS,B,ERRSTATE,"):
+                 "STATUS,B,ERRSTATE,", "BACKUP,STATUS,", '"type": "sigstates"'):
         if want not in boot:
             fails.append("missing " + want)
     for bus in ("F", "B"):

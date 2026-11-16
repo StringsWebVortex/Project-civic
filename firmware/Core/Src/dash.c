@@ -17,6 +17,8 @@
 #include "device_id.h"
 #include "log_mail.h"
 #include "sig_learn.h"
+#include "i2c1.h"
+#include "id_backup.h"
 #include "flash_store.h"
 #include "gvret.h"
 #include "can_dbc.h"
@@ -338,8 +340,24 @@ static bool snapLive(uint32_t id)
     return e && e->snapshotReady;
 }
 
+/* ── identity backup in the external 24LC512 (I2C1 PB6/PB9, address 0x50) ── */
+static const ee24_t s_ee = { i2c1_write, i2c1_read, i2c1_now_ms, 0x50u };
+#ifdef FS_HOST_TEST
+static ib_t s_ib;
+#else
+static ib_t s_ib __attribute__((section(".ccmram")));
+#endif
+static bool s_idInJournal;               /* replay saw identity records */
+static bool s_eeOk, s_idDirty;
+static uint32_t s_idDirtyAt;
+static int s_idRestored = -1;
+static uint8_t s_eeFails;
+
+void dash_identity_changed(void) { s_idDirty = true; s_idDirtyAt = millis(); }
+
 static void replayRecord(uint8_t type, uint32_t id, const uint8_t *d, uint16_t len)
 {
+    if (type == DEV_REC_PROFILE || type == DEV_REC_TARGET || type == SL_REC_STATE) s_idInJournal = true;
     dev_replay(dev_global(), type, id, d, len);   /* device profiles + target */
     mail_replay(mail_global(), type, id, d, len); /* mail settings + last sent */
     (void)sl_replay(sl_global(), type, id, d, len); /* learned signal grades */
@@ -988,6 +1006,7 @@ static void sigLearnService(void)
     sl_t *sl = sl_global();
     while (sl_take_change(sl, &i)) {
         if (logFsOk) (void)sl_persist(sl, i, evst_append);
+        dash_identity_changed();
         const sl_entry_t *e = &sl->e[i];
         char b[200];
         const int n = snprintf(b, sizeof b, "{\"type\":\"sigstate\",\"id\":\"%03X\",\"name\":\"%s\",\"state\":\"%s\","
@@ -998,10 +1017,32 @@ static void sigLearnService(void)
     }
 }
 
+static void backupStatus(void)
+{
+    char b[96];
+    snprintf(b, sizeof b, "BACKUP,STATUS,%s,%lu,%d", s_eeOk ? "PRESENT" : "ABSENT", (unsigned long)s_ib.seq, s_idRestored);
+    broadcast_type_msg("diag", b);
+}
+
+static bool ib_sink(uint8_t type, uint32_t id, const void *data, uint16_t len) { return ib_append(&s_ib, type, id, data, len); }
+
+/* Mirror identity to the EEPROM 5 s after the last change, only while the
+ * buses are quiet (the page writes block the main loop for ~0.5 s). */
+static void idBackupService(void)
+{
+    if (!s_eeOk || !s_idDirty || (uint32_t)(millis() - s_idDirtyAt) < 5000u || busFps[0] + busFps[1] > 20u) return;
+    s_idDirty = false;
+    const bool ok = ib_begin(&s_ib, &s_ee) && dev_rewrite(dev_global(), ib_sink) && sl_rewrite(sl_global(), ib_sink) && ib_commit(&s_ib);
+    if (ok) { s_eeFails = 0; backupStatus(); return; }
+    broadcast_type_msg("diag", "BACKUP,ERR,WRITE_FAILED");
+    if (++s_eeFails >= 3u) { s_eeOk = false; backupStatus(); }   /* stop retrying until reboot */
+    else dash_identity_changed();
+}
+
 void dash_ws_connected(uint8_t num)
 {
     if (num >= WS_MAX_CLIENTS) return;
-    wsAuthed[num] = true; emitStatus(); sendAllEvents(num); sigStatesSend(num);
+    wsAuthed[num] = true; emitStatus(); sendAllEvents(num); sigStatesSend(num); backupStatus();
 }
 
 void dash_ws_disconnected(uint8_t num)
@@ -1030,6 +1071,7 @@ void dash_ws_text(uint8_t num, char *payload, size_t length)
 
     if (strcmp(op, "events_get") == 0) { sendAllEvents(num); return; }
     if (strcmp(op, "sigstates") == 0) { sigStatesSend(num); return; }
+    if (strcmp(op, "backup") == 0) { if (jbool("now", false)) { s_idDirty = true; s_idDirtyAt = millis() - 5000u; } backupStatus(); return; }
     if (strcmp(op, "event_seen") == 0) {
         const long idv = jint("id", 0);
         if (idv <= 0 || !markEventSeen((uint32_t)idv)) wsReply(num, "diag", "EVENT,ERR,NOT_FOUND_OR_SAVE_FAILED");
@@ -1389,8 +1431,18 @@ bool dash_init(dash_cmd_fn cmd, can_capture_queue_t *q_fcan, can_capture_queue_t
     randomSecret(wsToken, 24);
     for (unsigned i = 0; i < WS_MAX_CLIENTS; i++) evCursor[i] = -2;
     sl_init(sl_global());                                        /* before the journal replay */
+    s_idInJournal = false; s_idDirty = false; s_eeFails = 0; s_idRestored = -1;
     logFsOk = logst_init() && evst_init(replayRecord, rewriteEvents, snapLive);
     if (logFsOk) loadEvents();
+    /* A full flash erase wiped the journal: bring identity back from the EEPROM. */
+    s_eeOk = i2c1_init() && ee24_present(&s_ee);
+    if (s_eeOk && logFsOk && !s_idInJournal) {
+        s_idRestored = ib_restore(&s_ib, &s_ee, replayRecord);
+        if (s_idRestored > 0) { (void)dev_rewrite(dev_global(), evst_append); (void)sl_rewrite(sl_global(), evst_append); }
+    } else if (s_eeOk) {
+        uint16_t base; uint32_t len; s_ib.ee = &s_ee;
+        if (!ib_newest(&s_ib, &base, &s_ib.seq, &len)) { s_ib.seq = 0u; dash_identity_changed(); }  /* first backup */
+    }
     bool ok = web_server_init();
     ok = (listen_port(23, gvret_accept) != NULL) && ok;          /* SavvyCAN / RealDash */
     ok = (listen_port(2323, obs_accept) != NULL) && ok;          /* read-only observer  */
@@ -1405,6 +1457,7 @@ void dash_poll(void)
     logService();
     eventsPump();
     sigLearnService();
+    idBackupService();
     if (gvretCli) tcp_output(gvretCli);
     static uint32_t last; const uint32_t now = millis();
     if (now - last >= 1000u) { last = now; emitStatus(); }
