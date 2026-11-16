@@ -434,6 +434,32 @@ static void test_uds_suppressed_and_multiframe(void)
     CHECK(ev == UDS_EV_TIMEOUT && !uds_busy(&U));
 }
 
+/* FC cannot be sent (bus busy) until the N_Br deadline: receive aborts. */
+static void test_fc_send_timeout_and_status_names(void)
+{
+    isotp_status_t e;
+    reset_bus();
+    isotp_init(&L, TX, RX, false, mock_send, NULL);
+    bus_busy = true;
+    const uint8_t ff[8] = { 0x10, 20, 0, 1, 2, 3, 4, 5 };
+    rx_frame(&L, ff, 8, 100);
+    isotp_poll(&L, 101);
+    CHECK(!isotp_take_error(&L, &e));
+    isotp_poll(&L, 100 + ISOTP_TIMEOUT_MS + 5u);
+    CHECK(isotp_take_error(&L, &e) && e == ISOTP_ERR_TIMEOUT_TX);
+    bus_busy = false;
+    static const char *const names[] = { "OK", "BUSY", "LENGTH", "TIMEOUT_FC", "TIMEOUT_CF",
+        "WRONG_SN", "OVERFLOW", "WAIT_LIMIT", "BAD_FC", "TIMEOUT_TX" };
+    static const isotp_status_t codes[] = { ISOTP_OK, ISOTP_ERR_BUSY, ISOTP_ERR_LENGTH,
+        ISOTP_ERR_TIMEOUT_FC, ISOTP_ERR_TIMEOUT_CF, ISOTP_ERR_WRONG_SN, ISOTP_ERR_OVERFLOW,
+        ISOTP_ERR_WAIT_LIMIT, ISOTP_ERR_BAD_FC, ISOTP_ERR_TIMEOUT_TX };
+    for (unsigned i = 0; i < sizeof codes / sizeof codes[0]; i++)
+        CHECK(strcmp(isotp_status_name(codes[i]), names[i]) == 0);
+    CHECK(strcmp(isotp_status_name((isotp_status_t)99), "UNKNOWN") == 0);
+    uds_init(&U, TX, RX, false, mock_send, NULL);
+    CHECK(uds_poll(&U, 5u) == UDS_EV_NONE);          /* idle client: nothing */
+}
+
 int main(void)
 {
     test_single_frame_padded_and_unpadded();
@@ -450,6 +476,7 @@ int main(void)
     test_confirm_rules();
     test_uds_positive_negative_pending_timeout();
     test_uds_suppressed_and_multiframe();
+    test_fc_send_timeout_and_status_names();
     printf("PASS test_isotp_uds\n");
     return 0;
 }

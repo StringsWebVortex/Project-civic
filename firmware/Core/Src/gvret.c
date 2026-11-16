@@ -79,6 +79,7 @@ int gvret_parser_feed(struct gvret_parser *p, uint8_t byte,
     }
 
     switch (p->state) {
+    default:            /* any corrupt state resyncs like idle */
     case GP_IDLE:
         if (byte == GVRET_START_BYTE) {
             p->state = GP_CMD;
@@ -165,10 +166,6 @@ int gvret_parser_feed(struct gvret_parser *p, uint8_t byte,
         emit_setup(p, out);
         p->state = GP_IDLE;
         return 1;
-
-    default:
-        p->state = GP_IDLE;
-        return 0;
     }
 }
 

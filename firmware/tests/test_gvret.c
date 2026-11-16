@@ -441,6 +441,21 @@ static void test_null_args(void)
           == 0u, "null buf frame returns 0");
 }
 
+/* --- unknown selector resyncs; F1 F1 stays primed; NUMBUSES decodes --- */
+static void test_unknown_selector_resync(void)
+{
+    struct gvret_parser p;
+    struct gvret_command cmd;
+    gvret_parser_init(&p);
+    const uint8_t a[] = {0xF1, 0x7E, GVRET_START_BYTE, GVRET_CMDB_GET_NUMBUSES};
+    CHECK(feed_all(&p, a, 2u, &cmd) == 0, "unknown selector decodes nothing");
+    CHECK(feed_all(&p, a + 2, 2u, &cmd) == 1 && cmd.type == GVRET_CMD_GET_NUMBUSES,
+          "parser back at idle after unknown selector");
+    const uint8_t b[] = {GVRET_START_BYTE, GVRET_START_BYTE, GVRET_CMDB_GET_NUMBUSES};
+    CHECK(feed_all(&p, b, sizeof b, &cmd) == 1 && cmd.type == GVRET_CMD_GET_NUMBUSES,
+          "start byte as selector keeps the parser primed");
+}
+
 int main(void)
 {
     test_encode_standard();
@@ -460,6 +475,7 @@ int main(void)
     test_encode_other_replies();
     test_round_trip();
     test_null_args();
+    test_unknown_selector_resync();
 
     if (failures != 0) {
         printf("GVRET TESTS FAILED: %d failure(s)\n", failures);

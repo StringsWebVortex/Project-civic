@@ -1,3 +1,4 @@
+#include <string.h>
 /*
  * test_remote_start.c - host tests for the remote-start starter state machine.
  * Driven by a simulated ms clock. Returns 0 and prints the pass banner on
@@ -364,6 +365,31 @@ int main(void)
     test_cfg_clamping();
     test_null_cfg_defaults();
     test_misc();
+
+    /* set_cfg, poll-driven request, names of every state/reason */
+    {
+        remote_start_t r; remote_start_cfg_t c = default_cfg();
+        remote_start_init(&r, &c);
+        c.require_armed = false; c.require_brake = false;
+        c.require_neutral_or_park = false; c.require_immobilizer_ok = false;
+        remote_start_set_cfg(&r, &c);
+        remote_start_set_cfg(NULL, &c);
+        remote_start_set_cfg(&r, NULL);
+        remote_start_inputs_t in = {0};
+        in.start_requested = true;
+        CHECK(remote_start_poll(&r, &in, 10u) == RS_EV_CRANK_START, "coverage case");
+        CHECK(remote_start_state(&r) == RS_CRANKING, "coverage case");
+        CHECK(remote_start_crank_elapsed_ms(&r, 260u) == 250u, "elapsed while cranking");
+        static const char *const sn[] = {"IDLE","CRANKING","RUNNING","FAILED","ABORTED","BLOCKED"};
+        static const remote_start_state_t sv[] = {RS_IDLE,RS_CRANKING,RS_RUNNING,RS_FAILED,RS_ABORTED,RS_BLOCKED};
+        for (unsigned i = 0; i < 6u; i++) CHECK(strcmp(remote_start_state_name(sv[i]), sn[i]) == 0, "coverage case");
+        CHECK(strcmp(remote_start_state_name((remote_start_state_t)77), "?") == 0, "coverage case");
+        static const char *const bn[] = {"NONE","NOT_ARMED","NOT_NEUTRAL","NO_BRAKE","IMMOBILIZER","ALREADY_RUNNING","BUSY"};
+        static const remote_start_block_reason_t bv[] = {RS_BLOCK_NONE,RS_BLOCK_NOT_ARMED,RS_BLOCK_NOT_NEUTRAL,
+            RS_BLOCK_NO_BRAKE,RS_BLOCK_IMMOBILIZER,RS_BLOCK_ALREADY_RUNNING,RS_BLOCK_BUSY};
+        for (unsigned i = 0; i < 7u; i++) CHECK(strcmp(remote_start_block_reason_name(bv[i]), bn[i]) == 0, "coverage case");
+        CHECK(strcmp(remote_start_block_reason_name((remote_start_block_reason_t)77), "?") == 0, "coverage case");
+    }
 
     if (g_fails != 0) {
         fprintf(stderr, "REMOTE_START TESTS FAILED: %d check(s)\n", g_fails);

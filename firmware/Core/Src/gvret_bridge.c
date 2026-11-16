@@ -44,7 +44,7 @@ static void handle_command(gvret_bridge_t *bridge,
     case GVRET_CMD_SETUP_CANBUS:
         /* Passive discovery and the explicit BITRATE command own bus speed. */
         bridge->stats.ignored_setup_commands++;
-        return;
+        /* fall through */
     case GVRET_CMD_NONE:
     default:
         return;

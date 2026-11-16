@@ -130,6 +130,8 @@ int main(void)
     test_journal();
     test_compaction();
     test_power_cut();
+    CHECK(logst_ok() && evst_ok(), "stores report ok after init");
+    CHECK(evst_total_bytes() > 0u && evst_free_bytes() <= evst_total_bytes(), "event store sizes");
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("test_dash_store: all checks passed\n");
     return 0;

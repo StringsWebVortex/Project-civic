@@ -107,5 +107,37 @@ int main(void)
         assert(can_filter_compile(&f, &r));
         assert(r.fifo1 && r.fr1 == 0x4u && r.fr2 == 0x4u); /* IDE must be 1 */
     }
+    /* ---- 16-bit list mode: four exact ids (RM0090 Fig. 342) ------------ */
+    {
+        can_filter_spec_t f = {0};
+        f.bank = 7u; f.enabled = true; f.mask_mode = false; f.scale32 = false;
+        f.id1 = 0x100u; f.mask1_or_id2 = 0x101u; f.id2 = 0x102u; f.mask2_or_id4 = 0x103u;
+        assert(can_filter_compile(&f, &r));
+        assert(!r.mask_mode && !r.scale32);
+        assert(r.fr1 == (((uint32_t)(0x101u << 5) << 16) | (0x100u << 5)));
+        assert(r.fr2 == (((uint32_t)(0x103u << 5) << 16) | (0x102u << 5)));
+        f.mask2_or_id4 = 0x800u;                         /* 4th id out of 11-bit range */
+        assert(!can_filter_compile(&f, &r));
+        f.mask2_or_id4 = 0x103u; f.mask1_or_id2 = 0x900u; /* 2nd id out of range */
+        assert(!can_filter_compile(&f, &r));
+    }
+    /* ---- 16-bit mask mode: invalid id / mask wider than 16 bits --------- */
+    {
+        can_filter_spec_t f = {0};
+        f.bank = 8u; f.enabled = true; f.mask_mode = true; f.scale32 = false;
+        f.id1 = 0x7E8u; f.id2 = 0x7E0u; f.mask1_or_id2 = 0xFFE0u; f.mask2_or_id4 = 0xFFE0u;
+        assert(can_filter_compile(&f, &r));
+        f.id2 = 0x800u;                                  /* bad id */
+        assert(!can_filter_compile(&f, &r));
+        f.id2 = 0x7E0u; f.mask2_or_id4 = 0x10000u;       /* mask > 16 bits */
+        assert(!can_filter_compile(&f, &r));
+    }
+    /* ---- 32-bit list mode: second id out of range ----------------------- */
+    {
+        can_filter_spec_t f = {0};
+        f.bank = 9u; f.enabled = true; f.mask_mode = false; f.scale32 = true;
+        f.id1 = 0x7E8u; f.mask1_or_id2 = 0x800u;
+        assert(!can_filter_compile(&f, &r));
+    }
     return 0;
 }

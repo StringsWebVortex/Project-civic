@@ -1255,10 +1255,10 @@ static void blProgress(int pct, const char *msg)
 
 bool dash_http_upload_begin(const http_req_t *r)
 {
+    if (stm32FlashRunning) return false;     /* never disturb the running upload */
     s_up = UP_NONE; s_upFail = false; s_upSize = 0; s_upLastPct = 0;
     if (strcmp(r->path, "/update") == 0) { s_up = UP_ESP32; return false; }
     if (strcmp(r->path, "/update-stm32") != 0) return false;
-    if (stm32FlashRunning) return false;
     s_up = UP_STM32; stm32FlashRunning = true; s_upExpect = r->content_length;
     blProgress(2, "Upload started");
     if (!fs_erase_128k(FS_STAGING_ADDR) || !fs_erase_128k(FS_STAGING_ADDR + FS_SECTOR_128K)) {

@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 /* Host tests for dash.c: the STM32-resident port of the ESP32 dashboard.
  * Checks that STM32 output lines become exactly the WebSocket JSON the
  * ESP32 produced (ArduinoJson formatting), that dashboard commands become
@@ -51,7 +52,7 @@ bool http_query_get(const http_req_t *r, const char *key, char *out, size_t cap)
 { const char *p = strstr(r->query, key); if (!p) return false; p += strlen(key); if (*p == '=') p++; snprintf(out, cap, "%s", p); return true; }
 
 /* lwIP stubs */
-static struct tcp_pcb pcbs[16]; static int npcb;
+static struct tcp_pcb pcbs[64]; static int npcb;
 static tcp_accept_fn accept_fn[65536];
 static uint16_t last_bind;
 static uint8_t gv_out[4096]; static size_t gv_len; static struct tcp_pcb *gv_pcb;
@@ -60,10 +61,12 @@ err_t tcp_write(struct tcp_pcb *pcb, const void *data, u16_t len, u8_t flags)
 { (void)flags; if (pcb == gv_pcb && gv_len + len < sizeof gv_out) { memcpy(gv_out + gv_len, data, len); gv_len += len; } return ERR_OK; }
 err_t tcp_output(struct tcp_pcb *pcb) { (void)pcb; return ERR_OK; }
 void  tcp_arg(struct tcp_pcb *pcb, void *arg) { (void)pcb; (void)arg; }
-static tcp_recv_fn recv_fn[16];
-void  tcp_recv(struct tcp_pcb *pcb, tcp_recv_fn f) { recv_fn[pcb->id] = f; }
-void  tcp_err(struct tcp_pcb *pcb, tcp_err_fn f) { (void)pcb; (void)f; }
-err_t tcp_close(struct tcp_pcb *pcb) { (void)pcb; return ERR_OK; }
+static tcp_recv_fn recv_fn[64];
+void  tcp_recv(struct tcp_pcb *pcb, tcp_recv_fn f) { if (f) recv_fn[pcb->id] = f; }
+static tcp_err_fn err_fn[64];
+void  tcp_err(struct tcp_pcb *pcb, tcp_err_fn f) { if (f) err_fn[pcb->id] = f; }
+static int close_fail;
+err_t tcp_close(struct tcp_pcb *pcb) { (void)pcb; return close_fail ? ERR_VAL : ERR_OK; }
 void  tcp_abort(struct tcp_pcb *pcb) { (void)pcb; }
 void  tcp_recved(struct tcp_pcb *pcb, u16_t len) { (void)pcb; (void)len; }
 void  tcp_nagle_disable(struct tcp_pcb *pcb) { (void)pcb; }
@@ -274,6 +277,183 @@ static void test_stm32_update_validation(void)
     CHECK(http_status == 500 && strstr(http_body, "Rejected before erase: initial stack pointer"), "invalid image rejected, app untouched");
 }
 
+extern int fake_erase_fail; extern int fake_fail_after;
+static struct tcp_pcb *newpcb(void) { pcbs[npcb].id = npcb; return &pcbs[npcb++]; }
+static void get(const char *method, const char *path, const char *query)
+{
+    http_req_t r; memset(&r, 0, sizeof r); strcpy(r.method, method); strcpy(r.path, path); strcpy(r.query, query);
+    http_status = 0; dash_http_request((http_conn_t *)1, &r);
+}
+static void dtc(unsigned n)       /* one UDS 19 02 report with a distinct DTC */
+{
+    char l[96]; snprintf(l, sizeof l, "UDS,F,DATA,7E8,0,5902FF%02X%02X0108\r\n", 0x10u + n / 200u, n % 200u);
+    dash_on_line(l); dash_on_line("UDS,F,POS,7E8,7\r\n");
+}
+
+static void test_parser_and_json_edges(void)
+{
+    clear();
+    dash_on_line("CMD,ERR,a\\b\b\f\tz\rq\nw\r\n");
+    CHECK(msg_contains("a\\\\b\\b\\f\\tz\\rq"), "JSON escapes for backslash and control characters");
+    clear(); dash_on_line("UDS,F,NEG,7E8,31\r\n"); dash_on_line("UDS,B,ERR,TIMEOUT\r\n"); dash_on_line("UDS,F,TXERR\r\n");
+    CHECK(msg_contains("UDS,F,NEG"), "UDS negative/error lines reset the DTC buffer and are logged");
+    clear();
+    dash_on_line("STATUS,F,BITRATE,250000\r\n");
+    CHECK(msg_contains("\"locked\":true,\"bitrate\":250000"), "BITRATE status");
+    dash_on_line("STATUS,F,SCAN,125000\r\n");
+    CHECK(msg_contains("\"locked\":false,\"bitrate\":125000"), "SCAN status");
+    dash_on_line("STATUS,F,DWELL,300\r\n");
+    CHECK(msg_contains("\"dwell\":300"), "DWELL status");
+    dash_on_line("STATUS,F,REACQUIRE\r\n");
+    CHECK(msg_contains("\"locked\":false,\"bitrate\":0"), "REACQUIRE status");
+    dash_on_line("STATUS,F,LOCK,500000\r\n");
+    clear(); ncmd = 0;
+    ws("{\"op\":\"can\",\"line\":\"OPT,F\\n\\t\\r\\b\\f\\u0041\\\"\"}");
+    CHECK(ncmd == 1 && strcmp(cmds[0], "OPT,F\n\t\r\b\f?\"") == 0, "JSON string escapes decoded");
+    clear(); ncmd = 0;
+    ws("{\"op\":\"write\",\"on\":1}");
+    CHECK(has_cmd("WRITE,OFF"), "non-boolean 'on' falls back to the default");
+    /* PID values refresh the snapshot list in place */
+    dash_on_line("PID,0C,RPM,rpm,800\r\n"); dash_on_line("PID,0D,Speed,kmh,20\r\n"); dash_on_line("PID,0C,RPM,rpm,900\r\n");
+}
+
+static void test_gvret_and_observer(void)
+{
+    /* GVRET: replies for keepalive, device info, numbuses, time sync, bus params, setup, dlc 0 */
+    gv_len = 0;
+    static const uint8_t cmds_in[] = { 0xF1, 0x09, 0xF1, 0x07, 0xF1, 0x0C, 0xF1, 0x01, 0xF1, 0x06,
+                                       0xF1, 0x05, 1, 2, 3, 4, 5, 6, 7, 8,
+                                       0xF1, 0x00, 0x23, 0x01, 0x00, 0x00, 0x01, 0x00 };
+    struct pbuf p = { NULL, (void *)cmds_in, sizeof cmds_in, sizeof cmds_in };
+    clear(); recv_fn[gv_pcb->id](NULL, gv_pcb, &p, ERR_OK);
+    CHECK(gv_len > 20 && has_cmd("TX,B,S,123,0,0,-"), "GVRET commands answered, dlc-0 frame forwarded");
+    CHECK(memmem(gv_out, gv_len, "\xF1\x06\x10", 3) != NULL, "bus params from the weak default (disabled)");
+    struct tcp_pcb *second = newpcb();
+    CHECK(accept_fn[23](NULL, second, ERR_OK) == ERR_ABRT, "one GVRET client at a time");
+    CHECK(accept_fn[23](NULL, NULL, ERR_OK) == ERR_VAL, "accept error");
+    recv_fn[gv_pcb->id](NULL, gv_pcb, NULL, ERR_OK);               /* peer closed */
+    struct tcp_pcb *g2 = newpcb();
+    CHECK(accept_fn[23](NULL, g2, ERR_OK) == ERR_OK, "slot free after close");
+    err_fn[g2->id](NULL, ERR_ABRT);                                  /* reset by peer */
+    struct tcp_pcb *g3 = newpcb(); close_fail = 1;
+    CHECK(accept_fn[23](NULL, g3, ERR_OK) == ERR_OK, "slot free after error");
+    recv_fn[g3->id](NULL, g3, NULL, ERR_OK); close_fail = 0;        /* close fails -> abort */
+    gv_pcb = newpcb(); CHECK(accept_fn[23](NULL, gv_pcb, ERR_OK) == ERR_OK, "re-accept");
+
+    /* observer on 2323: newest wins, input discarded, close and error */
+    struct tcp_pcb *o1 = newpcb(), *o2 = newpcb();
+    CHECK(accept_fn[2323](NULL, o1, ERR_OK) == ERR_OK, "observer accepted");
+    CHECK(accept_fn[2323](NULL, o2, ERR_OK) == ERR_OK, "newest observer replaces the old one");
+    CHECK(accept_fn[2323](NULL, NULL, ERR_OK) == ERR_VAL, "observer accept error");
+    uint8_t junk[3] = { 1, 2, 3 }; struct pbuf jp = { NULL, junk, 3, 3 };
+    recv_fn[o2->id](NULL, o2, &jp, ERR_OK);
+    recv_fn[o1->id](NULL, o1, NULL, ERR_OK);                         /* stale pcb closes */
+    recv_fn[o2->id](NULL, o2, NULL, ERR_OK);
+    struct tcp_pcb *o3 = newpcb();
+    CHECK(accept_fn[2323](NULL, o3, ERR_OK) == ERR_OK, "observer re-accept");
+    err_fn[o3->id](NULL, ERR_ABRT);
+    tick(1100);
+}
+
+static void test_mail_http(void)
+{
+    get("POST", "/mail/ack", "");
+    CHECK(http_status == 400, "ack needs seq");
+    get("POST", "/mail/ack", "seq=12345");
+    CHECK(http_status == 409, "ack of a non-pending seq");
+    clear(); get("POST", "/mail/send", "");
+    CHECK(http_status == 200 && has_msg("{\"type\":\"diag\",\"message\":\"MAIL,PENDING\"}"), "manual send queued");
+    get("GET", "/mail/status", "");
+    CHECK(http_status == 200 && strstr(http_body, "\"pending\":true") != NULL, "status shows pending");
+    const char *s = strstr(http_body, "\"seq\":"); unsigned long seq = s ? strtoul(s + 6, NULL, 10) : 0ul;
+    char q[32]; snprintf(q, sizeof q, "seq=%lu", seq);
+    clear(); get("POST", "/mail/ack", q);
+    CHECK(http_status == 200 && has_msg("{\"type\":\"diag\",\"message\":\"MAIL,SENT\"}"), "ack marks the log as sent");
+    get("GET", "/event.csv", "id=999");
+    CHECK(http_status == 404, "unknown event id");
+}
+
+static void test_event_capacity_and_compaction(void)
+{
+    tick(65000);                       /* > 60 one-second rows: pre-trigger ring drops the oldest */
+    /* fill the journal to 40 unacknowledged events, each with a snapshot */
+    for (unsigned n = 0; n < 45u; n++) { dtc(n); tick(11000); }
+    clear(); dtc(300); tick(100);
+    CHECK(has_msg("{\"type\":\"diag\",\"message\":\"EVENTS,ERR,40_UNACKNOWLEDGED_CAPACITY\"}"),
+          "40 unseen events: new reports refused, evidence kept");
+    /* acknowledge everything: new reports evict the oldest seen events */
+    for (unsigned id = 1; id < 200u; id++) { char b[64]; snprintf(b, sizeof b, "{\"op\":\"event_seen\",\"id\":%u}", id); ws(b); }
+    dtc(301); dtc(302); tick(3000);
+    CHECK(msg_contains("\"type\":\"event\""), "eviction keeps the journal running");
+    /* seen event reported again within 120 s counts as a repeat */
+    for (unsigned id = 1; id < 200u; id++) { char b[64]; snprintf(b, sizeof b, "{\"op\":\"event_seen\",\"id\":%u}", id); ws(b); }
+    tick(3000); clear(); dtc(302);
+    bool rep = false; for (int t = 0; t < 40 && !rep; t++) { tick(50); rep = msg_contains("\"repeats\":2"); }
+    CHECK(rep, "seen event repeated within 120 s");
+    /* a deletion record is replayed on boot */
+    CHECK(dash_init(cmd_cb, NULL, NULL), "re-init with deletion records");
+    /* post-trigger row write fails: the capture is dropped, the event kept */
+    dtc(310); tick(1500); fake_fail_after = 0; tick(1100); fake_fail_after = -1;
+    /* keep capturing snapshots until the journal sector compacts */
+    for (unsigned n = 320; n < 360u; n++) {
+        dtc(n); tick(11000);
+        char b[64]; for (unsigned id = 1; id < 400u; id++) { snprintf(b, sizeof b, "{\"op\":\"event_seen\",\"id\":%u}", id); ws(b); }
+    }
+    /* the journal survives a reboot after compaction */
+    clear();
+    CHECK(dash_init(cmd_cb, NULL, NULL), "re-init after compaction");
+    dash_ws_connected(0); tick(100);
+    CHECK(msg_contains("\"type\":\"event\""), "events replayed after compaction");
+}
+
+static void test_mail_at_70_percent(void)
+{
+    bool pending = false;
+    for (int k = 0; k < 90 && !pending; k++) {
+        clear();
+        for (int t = 0; t < 60 && !pending; t++) { tick(1000); pending = has_msg("{\"type\":\"diag\",\"message\":\"MAIL,PENDING\"}"); }
+    }
+    CHECK(pending, "log reaching 70 % requests the e-mail");
+}
+
+static void test_upload_paths(void)
+{
+    http_req_t r; memset(&r, 0, sizeof r); strcpy(r.method, "POST"); r.multipart = true;
+    strcpy(r.path, "/elsewhere");
+    CHECK(!dash_http_upload_begin(&r), "unknown upload path refused");
+    dash_http_upload_end((http_conn_t *)1, &r, true);
+    CHECK(http_status == 404, "end of unknown upload -> 404");
+    strcpy(r.path, "/update-stm32"); r.content_length = 300000;
+    fake_erase_fail = 1;
+    CHECK(!dash_http_upload_begin(&r), "staging erase failure refused");
+    fake_erase_fail = 0;
+    dash_http_upload_end((http_conn_t *)1, &r, false);
+    CHECK(http_status == 400 && strstr(http_body, "staging write failed"), "erase failure reported");
+    CHECK(dash_http_upload_begin(&r), "begin");
+    CHECK(!dash_http_upload_begin(&r), "second upload refused while one runs");
+    static uint8_t chunk[8192]; memset(chunk, 0, sizeof chunk);
+    for (int i = 0; i < 40; i++) (void)dash_http_upload_data(chunk, sizeof chunk);   /* > 256 KB */
+    dash_http_upload_end((http_conn_t *)1, &r, true);
+    CHECK(http_status == 400, "oversized image refused");
+    r.content_length = 0; CHECK(dash_http_upload_begin(&r), "begin");
+    fake_fail_after = 0; CHECK(!dash_http_upload_data(chunk, 16), "program failure"); fake_fail_after = -1;
+    dash_http_upload_end(NULL, &r, true);
+    /* stack pointer good, reset vector outside the image */
+    r.content_length = 8192; CHECK(dash_http_upload_begin(&r), "begin");
+    static uint8_t img[8192]; memset(img, 0, sizeof img);
+    img[0] = 0x00; img[1] = 0x00; img[2] = 0x02; img[3] = 0x20;    /* SP 0x20020000 */
+    img[4] = 0x01; img[5] = 0x00; img[6] = 0x10; img[7] = 0x08;    /* RV 0x08100001 */
+    CHECK(dash_http_upload_data(img, 4096) && dash_http_upload_data(img + 4096, 4096), "staged");
+    dash_http_upload_end((http_conn_t *)1, &r, true);
+    CHECK(http_status == 500 && strstr(http_body, "reset vector"), "reset vector check");
+    /* a valid image is accepted; applying it (reset) is the next poll, not run here */
+    CHECK(dash_http_upload_begin(&r), "begin");
+    img[4] = 0x01; img[5] = 0x01; img[6] = 0x00; img[7] = 0x08;    /* RV 0x08000101 */
+    CHECK(dash_http_upload_data(img, sizeof img), "staged");
+    dash_http_upload_end((http_conn_t *)1, &r, true);
+    CHECK(http_status == 200 && strstr(http_body, "STM32 flashed 8192 bytes"), "valid image accepted");
+}
+
 int main(void)
 {
     fake_flash_reset();
@@ -288,6 +468,12 @@ int main(void)
     test_reboot_persistence();
     test_log_http_and_disarm();
     test_stm32_update_validation();
+    test_parser_and_json_edges();
+    test_gvret_and_observer();
+    test_mail_http();
+    test_event_capacity_and_compaction();
+    test_mail_at_70_percent();
+    test_upload_paths();             /* last: a valid image schedules the apply/reset */
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("test_dash_bridge: all checks passed\n");
     return 0;

@@ -198,6 +198,25 @@ int main(void)
         can_profiler_update(&p2, NULL); /* no crash */
     }
 
+    /* ── bus tag, clock going backwards, DB byte labels on SIG lines ── */
+    {
+        can_profiler_t q;
+        can_profiler_init(&q);
+        can_profiler_set_bus(&q, 1u);
+        can_profiler_set_bus(NULL, 1u);                 /* no crash */
+        assert(q.bus == 1u);
+        uint8_t a[] = {0x03, 0x41, 0x0C, 0x10};
+        can_capture_frame_t f = make_frame(0x7E8u, 1000u, a, 4u);
+        can_profiler_update(&q, &f);
+        a[3] = 0x22; f = make_frame(0x7E8u, 500u, a, 4u);  /* earlier than prev and first */
+        can_profiler_update(&q, &f);
+        assert(q.entries[0].frame_count == 2u);
+        assert(q.entries[0].rate_hz_x10 == 20000u);       /* elapsed clamps to 1 ms */
+        emit_count = 0; last_line[0] = 0;
+        can_profiler_emit(&q, 5000u, test_write);
+        assert(emit_count >= 2);
+        assert(strstr(last_line, "SIG,7E8,3,") != NULL && strstr(last_line, ",A,1") != NULL);
+    }
     puts("PASS: can_signal_profiler — init, update, min/max, var_mask, rate, emit, table-full, nulls");
     return 0;
 }

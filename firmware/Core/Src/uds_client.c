@@ -104,6 +104,7 @@ uds_event_t uds_poll(uds_client_t *c, uint32_t now_ms)
 
     switch (c->state) {
     case UDS_IDLE:
+    default:
         return UDS_EV_NONE;
 
     case UDS_WAIT_SEND:
@@ -143,5 +144,4 @@ uds_event_t uds_poll(uds_client_t *c, uint32_t now_ms)
         return UDS_EV_NONE;
     }
     }
-    return UDS_EV_NONE;
 }

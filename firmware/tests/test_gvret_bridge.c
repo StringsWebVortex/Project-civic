@@ -139,6 +139,29 @@ int main(void)
         test.output[12] != 0x20u)
         return fail("captured frame stream");
 
+    /* device info reply, reset of a half-parsed command */
+    test.accept_output = true; test.output_length = 0u;
+    const uint8_t info[] = { GVRET_START_BYTE, GVRET_CMDB_GET_DEVICE_INFO };
+    feed(&bridge, info, sizeof info);
+    if (test.output_length == 0u || test.output[1] != GVRET_CMDB_GET_DEVICE_INFO)
+        return fail("device info reply");
+    feed(&bridge, info, 1u);                 /* start byte only */
+    gvret_bridge_reset(&bridge);
+    gvret_bridge_reset(NULL);
+    test.output_length = 0u;
+    feed(&bridge, keepalive + 1, 1u);        /* selector alone after reset: ignored */
+    if (test.output_length != 0u) return fail("reset drops the half command");
+
+    /* stream: encoder rejects dlc > 8; transport refusal counts a drop */
+    const uint32_t drops = bridge.stats.output_drops;
+    can_capture_frame_t bad = captured;
+    bad.dlc = 9u;
+    if (gvret_bridge_stream_frame(&bridge, &bad) || bridge.stats.output_drops != drops + 1u)
+        return fail("oversized frame dropped");
+    test.accept_output = false;
+    if (gvret_bridge_stream_frame(&bridge, &captured) || bridge.stats.output_drops != drops + 2u)
+        return fail("send refusal dropped");
+
     puts("ALL GVRET BRIDGE TESTS PASS");
     return 0;
 }

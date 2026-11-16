@@ -67,6 +67,13 @@ int main(void)
         usb_tx_queue_consume(&queue, 0u))
         return fail("invalid queue arguments rejected");
 
+    {
+        usb_tx_queue_t empty;
+        uint16_t n = 99u;
+        usb_tx_queue_init(&empty);
+        if (usb_tx_queue_peek(&empty, &n) != NULL || n != 0u)
+            return fail("peek on empty queue returns NULL and length 0");
+    }
     puts("ALL USB TX QUEUE TESTS PASS");
     return 0;
 }

@@ -12,6 +12,7 @@
 uint8_t  fake_flash[FAKE_SIZE];
 uint32_t fake_erases;
 int      fake_fail_after = -1;      /* power-cut model: fail programs after N bytes */
+int      fake_erase_fail;           /* erase refused (worn/locked sector model) */
 
 const uint8_t *fs_ptr(uint32_t addr)
 {
@@ -25,6 +26,7 @@ uint32_t fs_frames_during_erase(void) { return 0; }
 
 bool fs_erase_128k(uint32_t addr)
 {
+    if (fake_erase_fail) return false;
     if (addr < FAKE_BASE || (addr - FAKE_BASE) % FS_SECTOR_128K || addr + FS_SECTOR_128K > FAKE_BASE + FAKE_SIZE) return false;
     memset(&fake_flash[addr - FAKE_BASE], 0xFF, FS_SECTOR_128K);
     fake_erases++;
@@ -47,4 +49,4 @@ bool fs_program(uint32_t addr, const void *src, size_t len)
 
 void fs_apply_staged_image(uint32_t size) { (void)size; fprintf(stderr, "apply called\n"); exit(3); }
 
-void fake_flash_reset(void) { memset(fake_flash, 0xFF, sizeof fake_flash); fake_erases = 0; fake_fail_after = -1; }
+void fake_flash_reset(void) { memset(fake_flash, 0xFF, sizeof fake_flash); fake_erases = 0; fake_fail_after = -1; fake_erase_fail = 0; }

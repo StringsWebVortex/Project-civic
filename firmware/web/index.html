@@ -113,6 +113,8 @@ tbody td{padding:4px 8px;border-bottom:1px solid #21262d;white-space:nowrap}
 /* ── full-width sections ── */
 .full{margin-bottom:8px}
 @media(max-width:900px){.top-cards{grid-template-columns:repeat(2,1fr)}.main{grid-template-columns:1fr}}
+body.detecting #deviceBanner~*:not(#settings):not(script){display:none}
+body.detecting #deviceBanner{font-size:1.05rem;padding:22px;text-align:center;margin-top:40px}
 </style></head><body>
 <nav id="sideNav" aria-label="Dashboard navigation">
   <div class="nav-brand">CIVIC CAN<br><span style="font-size:.65rem;color:#8b949e;font-weight:500">Vehicle Monitor</span></div>
@@ -137,7 +139,7 @@ tbody td{padding:4px 8px;border-bottom:1px solid #21262d;white-space:nowrap}
   <div class="nav-foot">Navigation stays available while scrolling</div>
 </nav>
 <div id="top"></div>
-<div class="page-head"><h1>Vehicle Telemetry Dashboard</h1><button id="globalModeToggle" type="button" onclick="toggleGlobalMode()">ENTER WRITE MODE</button></div>
+<div class="page-head"><h1 id="pageTitle">Vehicle Telemetry Dashboard</h1><button id="globalModeToggle" type="button" onclick="toggleGlobalMode()">ENTER WRITE MODE</button></div>
 <div id="deviceBanner" style="display:none;margin:6px 0 9px;padding:9px 11px;border:1px solid #58a6ff;border-radius:7px;background:#0d2238;color:#cfe6ff;font-size:.78rem"></div>
 <div id="writeModeBanner">WRITE MODE ACTIVE · Both buses are full CAN nodes (bxCAN Normal, TJA1051 S low): TX, UDS, ECU scan, periodic, gateway and every write protocol may transmit. Press EXIT WRITE MODE to return every protocol to read-only. <b id="writeState"></b></div>
 <div id="statusBar">Connecting…</div>
@@ -1059,12 +1061,20 @@ function devCmd(x){ canCmd('DEVICE,'+x); }
 function devList(){ devItems=[]; devCmd('LIST'); }
 function devDetectNew(){ devCmd('DETECT'); }
 function devSelect(pid){ devCmd('SELECT,'+pid); }
+/* Boot view: a saved target boots straight into that device's dashboard;
+   with no saved target the page stays on the detection screen until the
+   user selects the detected device (board is the authority, every boot). */
+function devView(name){
+  document.body.classList.toggle('detecting',!name);
+  $('pageTitle').textContent=name?name+' — Dashboard':'Detecting connected device…';
+  try{ name?localStorage.setItem('devTarget',name):localStorage.removeItem('devTarget'); }catch(e){}
+}
 function devBanner(html){ const b=$('deviceBanner'); b.innerHTML=html; b.style.display=html?'block':'none'; }
 function devAdd(){ const n=($('devNewName').value||'').trim(); if(!n||/[",]/.test(n)){ diagLog('Device name must be non-empty without commas or quotes.'); return; } devCmd('ADD,'+n); }
 function deviceLine(f){
   const k=f[1];
-  if(k==='TARGET'){ devTarget={pid:f[2],name:f.slice(3).join(',')}; $('devCurrent').textContent='Target: '+devTarget.name; devBanner(''); }
-  else if(k==='DETECTING'||k==='OBSERVING'){ devTarget=null; $('devCurrent').textContent='Detecting connected network…'; devBanner('Identifying the connected CAN network…'); }
+  if(k==='TARGET'){ devTarget={pid:f[2],name:f.slice(3).join(',')}; $('devCurrent').textContent='Target: '+devTarget.name; devBanner(''); devView(devTarget.name); }
+  else if(k==='DETECTING'||k==='OBSERVING'){ devTarget=null; $('devCurrent').textContent='Detecting connected network…'; devBanner('Identifying the connected CAN network…'); devView(''); }
   else if(k==='DETECTED'){ const pid=f[2], name=f.slice(3,-1).join(','), sc=(parseInt(f[f.length-1],10)/10).toFixed(0);
     devBanner('Detected: <b>'+esc(name)+'</b> ('+sc+'% match) <button class="btn btn-sm" onclick="devSelect('+parseInt(pid,10)+')">Select this device</button>'); }
   else if(k==='NEW'){ const sug=f.slice(2,-1).join(',');

@@ -37,10 +37,11 @@ static void gpio_clock_enable(GPIO_TypeDef *g)
     (void)RCC->AHB1ENR;
 }
 
-static void pin_af(GPIO_TypeDef *g, uint8_t pin, uint8_t af)
+static void pin_af(GPIO_TypeDef *g, uint8_t pin, uint8_t af, bool open_drain)
 {
     g->PUPDR   &= ~(3u << (2u * pin));                         /* no pull: FT pin above VDD */
-    g->OTYPER  &= ~(1u << pin);                                /* push-pull */
+    if (open_drain) g->OTYPER |= (1u << pin);                  /* OD + external 5 V pull-up */
+    else            g->OTYPER &= ~(1u << pin);
     g->OSPEEDR |= (3u << (2u * pin));                          /* high speed */
     const uint8_t reg = pin >> 3, sh = (uint8_t)((pin & 7u) * 4u);
     g->AFR[reg] = (g->AFR[reg] & ~(15u << sh)) | ((uint32_t)af << sh);
@@ -57,17 +58,20 @@ void can_hw_gpio_init(can_ctrl_t *c, const can_cfg_t *cfg)
     c->uds_pad = true;
     c->opts = can_opts_default();
     gpio_clock_enable(cfg->gpio);
-    /* TJA1051 RXD is a 5 V output: RX pins are FT (DS8626). TXD push-pull. */
+    /* TJA1051T (no VIO pin): VIO = VCC = 5 V, so TXD/S need VIH >= 0.7*VIO =
+     * 3.5 V (NXP TJA1051 Table 7). 3.3 V push-pull cannot reach that: TX and S
+     * are open-drain on FT pins with external 2.2 k pull-ups to 5 V (DS8626:
+     * FT pins accept 5 V only with no internal pull). RXD (5 V out) -> FT pin. */
     if (cfg->s_gpio) {
         gpio_clock_enable(cfg->s_gpio);
-        cfg->s_gpio->BSRR = (1u << cfg->s_pin);                /* S HIGH = silent first */
-        cfg->s_gpio->OTYPER &= ~(1u << cfg->s_pin);
+        cfg->s_gpio->BSRR = (1u << cfg->s_pin);                /* S released = HIGH = silent */
+        cfg->s_gpio->OTYPER |= (1u << cfg->s_pin);             /* open-drain, 5 V pull-up */
         cfg->s_gpio->PUPDR  &= ~(3u << (2u * cfg->s_pin));
         cfg->s_gpio->MODER   = (cfg->s_gpio->MODER & ~(3u << (2u * cfg->s_pin))) |
                                (1u << (2u * cfg->s_pin));
     }
-    pin_af(cfg->gpio, cfg->rx_pin, cfg->af);
-    pin_af(cfg->gpio, cfg->tx_pin, cfg->af);
+    pin_af(cfg->gpio, cfg->rx_pin, cfg->af, false);
+    pin_af(cfg->gpio, cfg->tx_pin, cfg->af, true);
 }
 
 /* TJA1051 S: LOW (Normal) only for bxCAN Normal, HIGH (silent) otherwise. */

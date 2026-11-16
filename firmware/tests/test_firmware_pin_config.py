@@ -23,14 +23,17 @@ class HardwarePinConfigTests(unittest.TestCase):
         for r in ("500000u", "125000u", "33333u"):
             self.assertIn(r, CAN_HW)
 
-    def test_can_tx_is_push_pull(self):
-        self.assertNotIn("OTYPER |=", CAN_HW)
-        self.assertIn("g->OTYPER  &= ~(1u << pin);", CAN_HW)
+    def test_can_tx_and_s_are_open_drain_for_5v_tja1051(self):
+        # TJA1051T VIO=VCC=5 V -> VIH 3.5 V: OD + 5 V pull-up on FT pins.
+        self.assertIn("if (open_drain) g->OTYPER |= (1u << pin);", CAN_HW)
+        self.assertIn("pin_af(cfg->gpio, cfg->tx_pin, cfg->af, true);", CAN_HW)
+        self.assertIn("pin_af(cfg->gpio, cfg->rx_pin, cfg->af, false);", CAN_HW)
+        self.assertIn("cfg->s_gpio->OTYPER |= (1u << cfg->s_pin);", CAN_HW)
 
     def test_tja1051_s_pin_silent_except_normal(self):
         self.assertIn("transceiver_follow_mode", CAN_HW)
         self.assertIn("(m == CAN_MODE_NORMAL) ? (1u << (cfg->s_pin + 16u))", CAN_HW)
-        self.assertIn("S HIGH = silent first", CAN_HW)
+        self.assertIn("S released = HIGH = silent", CAN_HW)
 
     def test_each_can_instance_has_its_own_rx_queue(self):
         self.assertIn("capture_queue[2]", MAIN)
