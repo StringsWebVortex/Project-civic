@@ -44,7 +44,9 @@ ifeq ($(NET),1)
 NET_LINK_SRCS = Core/Src/net_usb.c Core/Src/web_server.c Core/Src/dash.c Core/Src/dash_store.c \
   Core/Src/flash_store.c Core/Src/gvret.c Core/Src/can_dbc.c build/net/dash_page.c build/can_dbc_table.c
 NET_LINK_OBJS = $(NET_OBJS)
-NET_FLAGS = -INet -IMiddlewares/Third_Party/tinyusb/src -IMiddlewares/Third_Party/tinyusb/lib/networking -IMiddlewares/Third_Party/lwip/src/include -IMiddlewares/Third_Party/jsmn -DNET_DASHBOARD=1
+NET_FLAGS = -INet -INet/networking -IUSB/ecm -IUSB -IMiddlewares/ST/STM32_USB_Device_Library/Core/Inc \
+  -IMiddlewares/ST/STM32_USB_Device_Library/Class/CDC_ECM/Inc -IMiddlewares/Third_Party/lwip/src/include \
+  -IMiddlewares/Third_Party/jsmn -DNET_DASHBOARD=1 -DUSE_HAL_DRIVER
 endif
 ALL_FLAGS = $(ARM_FLAGS) $(NET_FLAGS) $(EXTRA_FLAGS)
 
@@ -68,18 +70,18 @@ USB_FLAGS = -DUSB_CDC_ENABLED -DUSE_HAL_DRIVER -Wno-error \
   -I$(USB_DIR) -I$(USB_MW)/Core/Inc -I$(USB_MW)/Class/CDC/Inc
 
 # ── Single-board dashboard (ESP32 duties moved to the STM32) ──────────────
-# OTG-FS CDC-NCM network adapter (TinyUSB) + lwIP raw TCP: HTTP 80, WS 81,
-# GVRET TCP 23, observer TCP 2323, DHCP/DNS for the USB host.
-TUSB = Middlewares/Third_Party/tinyusb
+# OTG-FS CDC-ECM network adapter (ST USB Device Library, Class/CDC_ECM, from
+# STM32CubeF4 V1.28.3) + lwIP raw TCP: HTTP 80, WS 81, GVRET TCP 23,
+# observer TCP 2323, DHCP/DNS for the USB host.
 LWIP = Middlewares/Third_Party/lwip
 NET_SRCS = \
-  Core/Src/net_usb.c Net/usb_descriptors.c \
-  $(TUSB)/src/tusb.c $(TUSB)/src/common/tusb_fifo.c \
-  $(TUSB)/src/device/usbd.c $(TUSB)/src/device/usbd_control.c \
-  $(TUSB)/src/class/net/ncm_device.c \
-  $(TUSB)/src/portable/synopsys/dwc2/dcd_dwc2.c \
-  $(wildcard $(TUSB)/src/portable/synopsys/dwc2/dwc2_common.c) \
-  $(TUSB)/lib/networking/dhserver.c $(TUSB)/lib/networking/dnserver.c \
+  Core/Src/net_usb.c USB/ecm/usbd_conf_ecm.c USB/ecm/usbd_desc_ecm.c \
+  $(USB_MW)/Core/Src/usbd_core.c $(USB_MW)/Core/Src/usbd_ctlreq.c $(USB_MW)/Core/Src/usbd_ioreq.c \
+  $(USB_MW)/Class/CDC_ECM/Src/usbd_cdc_ecm.c \
+  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pcd.c \
+  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pcd_ex.c \
+  Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_usb.c \
+  Net/networking/dhserver.c Net/networking/dnserver.c \
   $(LWIP)/src/core/def.c $(LWIP)/src/core/inet_chksum.c $(LWIP)/src/core/init.c \
   $(LWIP)/src/core/ip.c $(LWIP)/src/core/mem.c $(LWIP)/src/core/memp.c \
   $(LWIP)/src/core/netif.c $(LWIP)/src/core/pbuf.c $(LWIP)/src/core/tcp.c \
@@ -89,7 +91,7 @@ NET_SRCS = \
   $(LWIP)/src/core/ipv4/ip4.c $(LWIP)/src/core/ipv4/ip4_addr.c \
   $(LWIP)/src/core/ipv4/ip4_frag.c $(LWIP)/src/core/ipv4/acd.c \
   $(LWIP)/src/netif/ethernet.c
-NET_INC = -INet -I$(TUSB)/src -I$(TUSB)/lib/networking -I$(LWIP)/src/include
+NET_INC = -INet -INet/networking -IUSB/ecm -IUSB -I$(USB_MW)/Core/Inc -I$(USB_MW)/Class/CDC_ECM/Inc -I$(LWIP)/src/include -DUSE_HAL_DRIVER
 # Third-party code is compiled without -Werror (warnings are theirs).
 NET_CFLAGS = $(filter-out -Werror -Wextra,$(ARM_FLAGS)) $(NET_INC) -DNET_DASHBOARD=1
 NET_OBJS = $(patsubst %.c,build/net/%.o,$(filter-out Core/Src/net_usb.c,$(NET_SRCS)))
@@ -98,7 +100,7 @@ build/net/dash_page.c: web/index.html tools/gen_dash_page.py
 	@mkdir -p $(dir $@)
 	$(PYTHON) tools/gen_dash_page.py $< $@
 
-build/net/%.o: %.c Net/tusb_config.h Net/lwipopts.h
+build/net/%.o: %.c Net/lwipopts.h USB/ecm/usbd_conf.h
 	@mkdir -p $(dir $@)
 	$(ARM_GCC) $(NET_CFLAGS) -w -c $< -o $@
 

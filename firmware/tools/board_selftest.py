@@ -4,7 +4,8 @@
 For each bus: switch to LOOPBACK_SILENT (bus pins stay recessive, TJA1051 S
 HIGH), send a standard and an extended frame, require both to come back as
 received frames, then return to SILENT. Also checks write mode is OFF at
-boot, the device/ability commands answer, and GVRET reports both buses.
+boot, the device/ability commands answer, GVRET reports both buses, and
+(on Linux) the host bound cdc_ether to a CDC-ECM (subclass 06) interface.
 
     python3 tools/board_selftest.py [--host 192.168.7.1]
 Exit 0 = all checks passed; otherwise prints the failed checks.
@@ -91,6 +92,28 @@ def gvret_params(host):
     return r
 
 
+def host_ecm_driver():
+    """Linux only: driver bound to the board's ECM control interface (0483:5740)."""
+    base = "/sys/bus/usb/devices"
+    if not os.path.isdir(base):
+        return None
+    for d in os.listdir(base):
+        p = os.path.join(base, d)
+        try:
+            if open(os.path.join(p, "idVendor")).read().strip() != "0483" or \
+               open(os.path.join(p, "idProduct")).read().strip() != "5740":
+                continue
+        except OSError:
+            continue
+        for i in os.listdir(p):
+            ip = os.path.join(p, i)
+            if ":1.0" in i and os.path.exists(os.path.join(ip, "bInterfaceSubClass")):
+                sub = open(os.path.join(ip, "bInterfaceSubClass")).read().strip()
+                drv = os.path.basename(os.path.realpath(os.path.join(ip, "driver"))) if os.path.exists(os.path.join(ip, "driver")) else ""
+                return sub, drv
+    return None
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default="192.168.7.1")
@@ -122,6 +145,9 @@ def main(argv=None):
             fails.append(bus + ": extended frame not looped back")
         ws.send({"op": "mode", "bus": bus, "mode": "SILENT"})
         time.sleep(0.3)
+    ecm = host_ecm_driver()
+    if ecm is not None and ecm != ("06", "cdc_ether"):
+        fails.append("USB interface is not CDC-ECM/cdc_ether: %r" % (ecm,))
     r = gvret_params(a.host)
     if len(r) < 12 or r[2] != 0x11 or r[7] != 0x11:
         fails.append("GVRET bus params wrong: " + r.hex())
