@@ -7,24 +7,30 @@ ROOT = Path(__file__).resolve().parents[1]
 MAIN = (ROOT / "Core/Src/main.c").read_text()
 CAN_HW = (ROOT / "Core/Src/can_hw.c").read_text()
 CAN_H = (ROOT / "Core/Inc/can_hw.h").read_text()
-UART_DMA = (ROOT / "Core/Src/uart_dma.c").read_text()
-UART_H = (ROOT / "Core/Inc/uart_dma.h").read_text()
 STARTUP = (ROOT / "startup_stm32f407xx.s").read_text()
-ESP = (ROOT / "esp32-dashboard/src/main.cpp").read_text()
 
 
 class HardwarePinConfigTests(unittest.TestCase):
+    # Pins verified against DS8626 (FT, AF9) and UM1472 (free on MB997).
     def test_can_pins_and_nominal_scan_rates(self):
-        self.assertRegex(MAIN, r"\.can\s*=\s*CAN1,\s*\.bus_index\s*=\s*0u,\s*\.gpio\s*=\s*GPIOB")
-        self.assertRegex(MAIN, r"\.rx_pin\s*=\s*8u,\s*\.tx_pin\s*=\s*9u,\s*\.af\s*=\s*9u")
+        self.assertRegex(MAIN, r"\.can\s*=\s*CAN1,\s*\.bus_index\s*=\s*0u,\s*\.gpio\s*=\s*GPIOD")
+        self.assertRegex(MAIN, r"\.rx_pin\s*=\s*0u,\s*\.tx_pin\s*=\s*1u,\s*\.s_gpio\s*=\s*GPIOD,\s*\.s_pin\s*=\s*2u,\s*\.af\s*=\s*9u")
         self.assertRegex(MAIN, r"\.preferred_bitrate\s*=\s*500000u")
         self.assertRegex(MAIN, r"\.can\s*=\s*CAN2,\s*\.bus_index\s*=\s*1u,\s*\.gpio\s*=\s*GPIOB")
-        self.assertRegex(MAIN, r"\.rx_pin\s*=\s*5u,\s*\.tx_pin\s*=\s*6u,\s*\.af\s*=\s*9u")
+        self.assertRegex(MAIN, r"\.rx_pin\s*=\s*12u,\s*\.tx_pin\s*=\s*13u,\s*\.s_gpio\s*=\s*GPIOD,\s*\.s_pin\s*=\s*3u,\s*\.af\s*=\s*9u")
         self.assertRegex(MAIN, r"\.preferred_bitrate\s*=\s*125000u")
         self.assertIn("c->cfg->preferred_bitrate", CAN_HW)
-        self.assertIn("500000u", CAN_HW)
-        self.assertIn("125000u", CAN_HW)
-        self.assertIn("33333u", CAN_HW)
+        for r in ("500000u", "125000u", "33333u"):
+            self.assertIn(r, CAN_HW)
+
+    def test_can_tx_is_push_pull(self):
+        self.assertNotIn("OTYPER |=", CAN_HW)
+        self.assertIn("g->OTYPER  &= ~(1u << pin);", CAN_HW)
+
+    def test_tja1051_s_pin_silent_except_normal(self):
+        self.assertIn("transceiver_follow_mode", CAN_HW)
+        self.assertIn("(m == CAN_MODE_NORMAL) ? (1u << (cfg->s_pin + 16u))", CAN_HW)
+        self.assertIn("S HIGH = silent first", CAN_HW)
 
     def test_each_can_instance_has_its_own_rx_queue(self):
         self.assertIn("capture_queue[2]", MAIN)
@@ -33,36 +39,10 @@ class HardwarePinConfigTests(unittest.TestCase):
         self.assertIn("capture_queue[c->cfg->bus_index].dropped", MAIN)
         self.assertGreaterEqual(MAIN.count("can_capture_queue_pop(&capture_queue[b]"), 1)
 
-    def test_usart3_rx_tx_and_dma1_stream3_channel4(self):
-        self.assertIn("GPIOB->AFR[1]", MAIN)
-        self.assertIn("RCC_AHB1ENR_GPIOBEN", MAIN)
-        self.assertIn("RCC_APB1ENR_USART3EN", MAIN)
-        self.assertIn("GPIOB->MODER", MAIN)
-        self.assertIn("void USART3_IRQHandler(void)", MAIN)
-        self.assertIn("USART3->SR", MAIN)
-        self.assertIn("USART3->DR", MAIN)
-        self.assertIn("DMA1_Stream3", UART_DMA)
-        self.assertIn("(4u << DMA_SxCR_CHSEL_Pos)", UART_DMA)
-        self.assertIn("&USART3->DR", UART_DMA)
-        self.assertIn("DMA1->LISR", UART_DMA)
-        self.assertIn("DMA1->LIFCR", UART_DMA)
-        self.assertIn("DMA1_Stream3_IRQn", UART_DMA)
-        self.assertIn("void DMA1_Stream3_IRQHandler(void)", UART_DMA)
-        self.assertIn("DMA1 Stream3 Channel4 for USART3 TX", UART_H)
-        self.assertIn("DMA1_Stream3_IRQHandler", STARTUP)
-        self.assertIn("USART3_IRQHandler", STARTUP)
-
-    def test_esp32_application_and_rom_use_same_uart_wires(self):
-        self.assertRegex(ESP, r"STM32_RX\s*=\s*16")
-        self.assertRegex(ESP, r"STM32_TX\s*=\s*17")
-        self.assertRegex(ESP, r"STM32_BOOT0\s*=\s*26")
-        self.assertRegex(ESP, r"STM32_NRST\s*=\s*25")
-        self.assertIn("Stm32.begin(STM32_BAUD, SERIAL_8N1, STM32_RX, STM32_TX)", ESP)
-        self.assertIn("Stm32.begin(57600, SERIAL_8E1, STM32_RX, STM32_TX)", ESP)
-        self.assertIn("SB19 ON", ESP)
-        self.assertIn("no erase was sent", ESP)
-        for stale in ("STM32_BOOT1", "STM32_BL_RX", "STM32_BL_TX", "GPIO27", "GPIO4 → BOOT0", "GPIO5 → NRST"):
-            self.assertNotIn(stale, ESP)
+    def test_no_usart3_or_esp32_uart_link(self):
+        for stale in ("USART3", "uart_dma", "host_rx_pop", "PB10", "GPIOB->AFR[1]"):
+            self.assertNotIn(stale, MAIN)
+        self.assertFalse((ROOT / "Core/Src/uart_dma.c").exists())
 
     def test_tja1051_transmit_floor_is_not_bypassed(self):
         timing = (ROOT / "Core/Inc/periph_timing.h").read_text()

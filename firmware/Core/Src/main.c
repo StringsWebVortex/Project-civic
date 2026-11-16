@@ -1,26 +1,20 @@
 /*
  * Project Civic - STM32F407VGT6 (STM32F4DISCOVERY) dual-bus CAN diagnostic core.
  *
- * Target pin map from the owner's SVG (software implementation is NOT
- * install-ready until the MB997 PB6/PB9 pull-up conflict is physically fixed):
- *   CAN1 F-CAN: PB8 RX / PB9 TX AF9, 500 kbit/s nominal
- *   CAN2 B-CAN: PB5 RX / PB6 TX AF9, 125 kbit/s nominal
- *   TJA1051 S pins: both grounded; firmware uses bxCAN BTR.SILM for passive
- *   operation and disarm. TXD uses open-drain because plain TJA1051 pin 5
- *   is NC and its internal VIO is tied to 5 V VCC. PB5/PB8 RX pins are FT.
- *   Host UART: USART3 PB10_TX / PB11_RX AF7, 2 Mbaud 8N1;
- *   TX DMA: DMA1 Stream3 Channel4; RXNE/ORE remains USART3 IRQ driven.
- *
- * MB997 E-01 conflict: R29/R33 (4.7 kOhm each) pull PB6/PB9 to VDD=3 V.
- * They remain connected when CS43L22 RESET is held low by PD4. These pull-ups
- * may prevent the 5 V-referenced TJA1051 TXD input from reaching guaranteed
- * VIH. Do not connect/install this pin map until the board-level pull-ups are
- * isolated or an electrically verified interface is provided.
+ * Pin map (verified against DS8626 pin/AF tables and UM1472 MB997 pin table:
+ * every pin below is FT and has no on-board function on MB997):
+ *   CAN1 F-CAN: PD0 RX / PD1 TX AF9 (push-pull), TJA1051 #1 S = PD2
+ *   CAN2 B-CAN: PB12 RX / PB13 TX AF9 (push-pull), TJA1051 #2 S = PD3
+ *   S pin HIGH (transceiver silent) in every mode except bxCAN Normal, so the
+ *   bus is never driven unless the controller is a full node (RM0090: in
+ *   loop-back mode CANTX still carries the frames).
+ *   Starter relay PE4, ACC PE5, IGN2 PE6. CS43L22 held in reset by PD4.
+ *   No serial host link / no ESP32: all lines go to the USB dashboard.
  *
  * While ignition is OFF, both bxCAN blocks are parked in SILM. PE5/PE6
  * ignition inputs start independent passive bitrate scans (listen-only).
  * Each bus has its own capture queue and status/error counters.
- * Frames stream to the ESP32 dashboard over USART3 as:
+ * Frames stream to the USB dashboard as:
  *     <ts_us>,STD|EXT,<id_hex>,<dlc>,<rtr>,<payload_hex>,<bus>
  * plus PID / PROFILE / SIG lines (PROFILE/SIG carry bus as the last field).
  *
@@ -64,7 +58,6 @@
 #include "can_frame_format.h"
 #include "can_signal_profiler.h"
 #include "obd2_decoder.h"
-#include "uart_dma.h"
 #include "periph_timing.h"
 #include "uds_client.h"
 #include "ecu_scan.h"
@@ -83,11 +76,6 @@
  * TransferData 0x36) carry useful payloads: a 512-byte UDS request = ~1024 hex
  * chars + framing. ISO-TP itself handles up to 4095 bytes; the dashboard
  * chunks TransferData to <= UDS_MAX_REQUEST per frame. */
-#ifdef NET_DASHBOARD
-#define HOST_RX_CAPACITY         512u     /* no ESP32 on USART3 any more */
-#else
-#define HOST_RX_CAPACITY         2048u
-#endif
 #define HOST_LINE_CAPACITY       1152u
 #define STATS_PERIOD_MS          1000u
 #define UDS_MAX_REQUEST          512u
@@ -105,14 +93,11 @@
 static can_capture_queue_t capture_queue[2] __attribute__((section(".ccmram"))); /* independent RX queue per bxCAN instance */
 static can_profiler_t      profiler[2];
 volatile uint32_t   system_millis;   /* shared with net_usb/lwIP/dashboard */
-static volatile uint32_t   host_rx_overflow;
-static volatile uint16_t   host_rx_head, host_rx_tail;
-static volatile uint8_t    host_rx_ring[HOST_RX_CAPACITY];
 static uint32_t            pclk1_hz, pclk2_hz, tim2_clk_hz;
 static bool                clock_ok;
 static volatile uint32_t   processed_can_frames;
-static volatile uint32_t   esp_uart_lines_queued;
-static volatile uint32_t   esp_uart_last_activity_ms;
+static volatile uint32_t   out_lines_emitted;
+static volatile uint32_t   out_last_activity_ms;
 static volatile uint32_t   processed_last_activity_ms;
 static uint32_t            measured_vdd_mv = 3300u;
 static bool                vdd_low;
@@ -204,49 +189,6 @@ static void tim2_us_init(void)
     TIM2->CR1 = TIM_CR1_CEN;
 }
 
-/* ── host UART: USART3 PB10/PB11, 2 Mbaud 8N1 ───────────────────────────── */
-static bool host_stream_init(void)
-{
-    uint32_t brr; bool over8;
-    if (!usart_brr_for(pclk1_hz, PROJECT_HOST_UART_BAUD, &brr, &over8)) return false;
-    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOBEN;
-    RCC->APB1ENR |= RCC_APB1ENR_USART3EN;
-    (void)RCC->APB1ENR;
-    /* PB10=USART3_TX, PB11=USART3_RX, AF7. PB11 receives in pull-up mode. */
-    GPIOB->MODER   = (GPIOB->MODER   & ~((3u<<20)|(3u<<22))) | (2u<<20)|(2u<<22);
-    GPIOB->OTYPER &= ~((1u<<10)|(1u<<11));
-    GPIOB->PUPDR   = (GPIOB->PUPDR   & ~((3u<<20)|(3u<<22))) | (1u<<22);
-    GPIOB->OSPEEDR = (GPIOB->OSPEEDR & ~((3u<<20)|(3u<<22))) | (2u<<20)|(2u<<22);
-    GPIOB->AFR[1]  = (GPIOB->AFR[1]  & ~((15u<<8)|(15u<<12))) | (7u<<8)|(7u<<12);
-    USART3->CR1 = 0u;
-    USART3->BRR = brr;
-    USART3->CR2 = 0u; /* 1 stop, no parity: application 8N1 */
-    USART3->CR3 = 0u;
-    USART3->CR1 = (over8 ? USART_CR1_OVER8 : 0u) |
-                  USART_CR1_RE | USART_CR1_TE | USART_CR1_RXNEIE | USART_CR1_UE;
-    NVIC_EnableIRQ(USART3_IRQn);
-    return true;
-}
-
-void USART3_IRQHandler(void)
-{
-    const uint32_t sr = USART3->SR;
-    if (sr & (USART_SR_RXNE | USART_SR_ORE)) {
-        const uint8_t ch = (uint8_t)USART3->DR;
-        if (sr & USART_SR_ORE) host_rx_overflow++;
-        const uint16_t nxt = (uint16_t)((host_rx_head + 1u) % HOST_RX_CAPACITY);
-        if (nxt != host_rx_tail) { host_rx_ring[host_rx_head] = ch; host_rx_head = nxt; }
-        else host_rx_overflow++;
-    }
-}
-
-static bool host_rx_pop(uint8_t *out)
-{
-    if (host_rx_tail == host_rx_head) return false;
-    *out = host_rx_ring[host_rx_tail];
-    host_rx_tail = (uint16_t)((host_rx_tail + 1u) % HOST_RX_CAPACITY);
-    return true;
-}
 
 static bool profiler_write(const char *line)
 {
@@ -254,8 +196,8 @@ static bool profiler_write(const char *line)
 #ifdef NET_DASHBOARD
     dash_on_line(line);
 #endif
-    if (uart_dma_free() < UART_TX_RING_SIZE / 2u + len) return false;
-    return uart_dma_put_line(line);
+    (void)len;
+    return true;
 }
 
 static void emit(const char *s)
@@ -263,10 +205,8 @@ static void emit(const char *s)
 #ifdef NET_DASHBOARD
     dash_on_line(s);              /* the dashboard parses every STM32 line */
 #endif
-    if (uart_dma_put_line(s)) {
-        esp_uart_lines_queued++;
-        esp_uart_last_activity_ms = system_millis;
-    }
+    out_lines_emitted++;
+    out_last_activity_ms = system_millis;
 }
 static void emit_bus_line(const can_ctrl_t *c, const char *rest)
 { char s[72]; (void)snprintf(s, sizeof s, "STATUS,%s,%s", c->cfg->label, rest); emit(s); }
@@ -463,7 +403,6 @@ static void uds_emit_service(can_ctrl_t *c)
         if (c->uds_emit_pos >= c->uds.resp_len) {
             (void)snprintf(s, sizeof s, "UDS,%s,POS,%lX,%u\r\n", c->cfg->label,
                            (unsigned long)c->uds.link.rx_id, (unsigned)c->uds.resp_len);
-            if (uart_dma_free() < strlen(s)) return;
             emit(s); c->uds_emitting = false; return;
         }
         uint16_t n = (uint16_t)(c->uds.resp_len - c->uds_emit_pos);
@@ -473,7 +412,6 @@ static void uds_emit_service(can_ctrl_t *c)
         for (uint16_t i = 0; i < n; i++)
             k += snprintf(s + k, sizeof s - (size_t)k, "%02X", c->uds.resp[c->uds_emit_pos + i]);
         (void)snprintf(s + k, sizeof s - (size_t)k, "\r\n");
-        if (uart_dma_free() < strlen(s)) return;
         emit(s);
         c->uds_emit_pos = (uint16_t)(c->uds_emit_pos + n);
     }
@@ -539,7 +477,6 @@ static void ecuscan_service(can_ctrl_t *c)
 {
     if (!ecu_scan_active(&c->ecuscan)) return;
     if (!c->tx_armed) { ecuscan_stop(c, "DISARMED"); return; }
-    if (uart_dma_free() < 80u) return;
     char s[80];
     switch (ecu_scan_poll(&c->ecuscan, system_millis, uds_can_send, c)) {
     case ECU_SCAN_EV_FOUND: {
@@ -800,7 +737,7 @@ static void host_command(char *lb)
 }
 
 #ifdef NET_DASHBOARD
-/* Dashboard commands enter exactly like USART3 host lines did from the ESP32. */
+/* Dashboard commands (WebSocket) enter here. */
 static void dash_command(const char *line)
 {
     static char lb[HOST_LINE_CAPACITY];
@@ -812,22 +749,6 @@ static void dash_command(const char *line)
 }
 #endif
 
-static void host_command_poll(void)
-{
-    static char lb[HOST_LINE_CAPACITY];
-    static uint32_t used = 0u;
-    static bool discarding = false;
-    uint8_t ch;
-    while (host_rx_pop(&ch)) {
-        if (ch == '\r') continue;
-        if (ch == '\n') {
-            if (!discarding && used) { lb[used] = '\0'; host_command(lb); }
-            used = 0u; discarding = false;
-        } else if (discarding) {
-        } else if (used + 1u < sizeof lb) { lb[used++] = (char)ch; }
-        else { used = 0u; discarding = true; emit("CMD,ERR,LINE_TOO_LONG\r\n"); }
-    }
-}
 
 /* ── CAN interrupt handlers ─────────────────────────────────────────────── */
 void CAN1_RX0_IRQHandler(void) { can_hw_rx_drain(&s_can[0], &capture_queue[0], 0u, system_millis); }
@@ -863,11 +784,7 @@ static const char *reset_cause_take(void)
     return cause;
 }
 
-/* MB997 audio codec shares PB6/PB9 with the CS43L22 I2C bus. Keep PD4 /
- * Audio_RST asserted before those pins are multiplexed to CAN2_TX/CAN1_TX;
- * onboard audio is not used in this pin assignment. This does not disconnect
- * the board's external R29/R33 pull-ups, which remain an electrical install
- * hold. PB10 also clocks the onboard MEMS mic, so mic sampling is unavailable. */
+/* CS43L22 audio codec is unused: hold its reset (PD4) low so it stays idle. */
 static void audio_codec_hold_reset_init(void)
 {
     RCC->AHB1ENR |= RCC_AHB1ENR_GPIODEN;
@@ -981,8 +898,8 @@ static void leds_update(void)
     const bool cpu_recent = (uint32_t)(now - processed_last_activity_ms) < 500u;
     led_set(LED_GREEN, cpu_period && cpu_recent && ((now % cpu_period) < (cpu_period / 2u)));
 
-    /* LD3: each line accepted by ESP32 UART DMA triggers a short pulse. */
-    led_set(LED_ORANGE, (uint32_t)(now - esp_uart_last_activity_ms) < 45u && esp_uart_lines_queued != 0u);
+    /* LD3: each line emitted to the dashboard triggers a short pulse. */
+    led_set(LED_ORANGE, (uint32_t)(now - out_last_activity_ms) < 45u && out_lines_emitted != 0u);
 
     /* LD5: distinctive 4 Hz warning pattern while measured MCU VDD is low. */
     led_set(LED_RED, vdd_low && ((now % 250u) < 125u));
@@ -1040,7 +957,7 @@ static void bus_periodic(can_ctrl_t *c, uint32_t *last_stats_ms, uint32_t *last_
                        c->cfg->label,
                        (unsigned long)c->rx_frame_count,
                        (unsigned long)capture_queue[c->cfg->bus_index].dropped,
-                       (unsigned long)uart_dma_dropped_lines(), (unsigned long)c->can_error_count,
+                       0ul, (unsigned long)c->can_error_count,
                        (unsigned long)c->can_lec_count,
                        (unsigned long)((esr & CAN_ESR_TEC) >> CAN_ESR_TEC_Pos),
                        (unsigned long)((esr & CAN_ESR_REC) >> CAN_ESR_REC_Pos), st);
@@ -1077,7 +994,7 @@ static void rpm_from_frame(const can_capture_frame_t *f)
  * driven by its own automotive-protected, isolated 12 V -> 3.3 V interface.
  * CAN traffic is deliberately NOT used to infer key state: body modules may
  * chatter after key-off, and a quiet bus cannot wake an unpowered scanner.
- * OFF disarms both bxCAN blocks into SILM; TJA1051 S pins remain grounded.
+ * OFF disarms both bxCAN blocks into SILM; TJA1051 S pins go HIGH (silent).
  * The ESP32 remains alive and can reset STM32 into its ROM bootloader. */
 #define ACC_PORT GPIOE
 #define ACC_PIN  5u
@@ -1228,13 +1145,13 @@ int main(void)
 {
     /* Fixed wiring for the two controllers (see file header). */
     s_cfg[0] = (can_cfg_t){
-        .can = CAN1, .bus_index = 0u, .gpio = GPIOB,
-        .rx_pin = 8u, .tx_pin = 9u, .af = 9u, .filter_bank = 0u,
+        .can = CAN1, .bus_index = 0u, .gpio = GPIOD,
+        .rx_pin = 0u, .tx_pin = 1u, .s_gpio = GPIOD, .s_pin = 2u, .af = 9u, .filter_bank = 0u,
         .is_can2 = false, .label = "F", .preferred_bitrate = 500000u
     };
     s_cfg[1] = (can_cfg_t){
         .can = CAN2, .bus_index = 1u, .gpio = GPIOB,
-        .rx_pin = 5u, .tx_pin = 6u, .af = 9u, .filter_bank = 14u,
+        .rx_pin = 12u, .tx_pin = 13u, .s_gpio = GPIOD, .s_pin = 3u, .af = 9u, .filter_bank = 14u,
         .is_can2 = true, .label = "B", .preferred_bitrate = 125000u
     };
 
@@ -1253,12 +1170,10 @@ int main(void)
     if (SysTick_Config(SystemCoreClock / 1000u) != 0u) for (;;) { }
     tim2_us_init();
 
-    if (!host_stream_init()) for (;;) { __WFI(); }
-    uart_dma_init();
     { char s[48]; (void)snprintf(s, sizeof s, "STATUS,SYS,RESET,%s\r\n", reset_cause_take()); emit(s); }
     if (!clock_ok) emit("STATUS,SYS,CLOCK,HSI_FALLBACK\r\n");
 
-    audio_codec_hold_reset_init(); /* PD4 low disables CS43L22 I2C before PB6/PB9 reuse */
+    audio_codec_hold_reset_init(); /* PD4 low: CS43L22 idle */
     can_hw_gpio_init(&s_can[0], &s_cfg[0]);
     can_hw_gpio_init(&s_can[1], &s_cfg[1]);
     leds_init();
@@ -1298,7 +1213,6 @@ int main(void)
 
     for (;;) {
         iwdg_feed();
-        host_command_poll();
 
         for (uint32_t i = 0; i < 2u; i++) {
             bus_periodic(&s_can[i], &last_stats[i], &last_dwell[i]);

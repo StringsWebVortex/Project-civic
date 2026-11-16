@@ -34,17 +34,10 @@ static void gpio_clock_enable(GPIO_TypeDef *g)
     (void)RCC->AHB1ENR;
 }
 
-static void pin_af(GPIO_TypeDef *g, uint8_t pin, uint8_t af, bool open_drain)
+static void pin_af(GPIO_TypeDef *g, uint8_t pin, uint8_t af)
 {
     g->PUPDR   &= ~(3u << (2u * pin));                         /* no pull: FT pin above VDD */
-    if (open_drain) {
-        /* Keep the MCU output transistor released before AF handoff. The
-         * board-level TXD pull-up network still requires electrical approval. */
-        g->BSRR = (1u << pin);
-        g->OTYPER |= (1u << pin);
-    } else {
-        g->OTYPER &= ~(1u << pin);
-    }
+    g->OTYPER  &= ~(1u << pin);                                /* push-pull */
     g->OSPEEDR |= (3u << (2u * pin));                          /* high speed */
     const uint8_t reg = pin >> 3, sh = (uint8_t)((pin & 7u) * 4u);
     g->AFR[reg] = (g->AFR[reg] & ~(15u << sh)) | ((uint32_t)af << sh);
@@ -60,12 +53,25 @@ void can_hw_gpio_init(can_ctrl_t *c, const can_cfg_t *cfg)
     c->tx_tokens = TX_RATE_MAX_PER_SECOND;
     c->uds_pad = true;
     gpio_clock_enable(cfg->gpio);
-    /* TJA1051 pin 5 is NC, so VIO is internally tied to VCC=5 V. RXD is
-     * wired only to STM32 FT inputs. TX uses open-drain so the MCU does not
-     * drive a 3.3 V HIGH; the MB997 R29/R33 pull-up interaction remains an
-     * installation hold until its TXD voltage is electrically verified. */
-    pin_af(cfg->gpio, cfg->rx_pin, cfg->af, false);
-    pin_af(cfg->gpio, cfg->tx_pin, cfg->af, true);
+    /* TJA1051 RXD is a 5 V output: RX pins are FT (DS8626). TXD push-pull. */
+    if (cfg->s_gpio) {
+        gpio_clock_enable(cfg->s_gpio);
+        cfg->s_gpio->BSRR = (1u << cfg->s_pin);                /* S HIGH = silent first */
+        cfg->s_gpio->OTYPER &= ~(1u << cfg->s_pin);
+        cfg->s_gpio->PUPDR  &= ~(3u << (2u * cfg->s_pin));
+        cfg->s_gpio->MODER   = (cfg->s_gpio->MODER & ~(3u << (2u * cfg->s_pin))) |
+                               (1u << (2u * cfg->s_pin));
+    }
+    pin_af(cfg->gpio, cfg->rx_pin, cfg->af);
+    pin_af(cfg->gpio, cfg->tx_pin, cfg->af);
+}
+
+/* TJA1051 S: LOW (Normal) only for bxCAN Normal, HIGH (silent) otherwise. */
+static void transceiver_follow_mode(const can_cfg_t *cfg, can_mode_t m)
+{
+    if (!cfg->s_gpio) return;
+    cfg->s_gpio->BSRR = (m == CAN_MODE_NORMAL) ? (1u << (cfg->s_pin + 16u))
+                                               : (1u << cfg->s_pin);
 }
 
 /* ── controller init/mode ────────────────────────────────────────────── */
@@ -142,6 +148,7 @@ bool can_hw_set_bitrate(can_ctrl_t *c, uint32_t bitrate, can_mode_t mode)
 
     c->current_bitrate      = actual;
     c->mode                 = mode;
+    transceiver_follow_mode(c->cfg, mode);
     c->valid_frames_at_rate = 0u;
     c->bitrate_error_streak = 0u;
     c->isr_last_rx_ts_ms    = 0u;
@@ -172,9 +179,8 @@ static void apply_filter(const can_filter_regs_t *r)
 void can_hw_filters_init(can_ctrl_t *can1, can_ctrl_t *can2, bool use_fifo1)
 {
     (void)use_fifo1;
-    /* Filters are configured at boot while both bxCAN instances are held/reset
-     * in listen-only initialization; the external TJA1051 S pins are grounded
-     * so the transceivers themselves remain in Normal mode. */
+    /* Filters are configured at boot while both bxCAN instances are held in
+     * listen-only initialization and both TJA1051 S pins are HIGH. */
     RCC->APB1ENR |= RCC_APB1ENR_CAN1EN | RCC_APB1ENR_CAN2EN;
     (void)RCC->APB1ENR;
     const uint8_t can2_start = 14u;                 /* banks 0..13 CAN1, 14..27 CAN2 */
@@ -213,7 +219,7 @@ void can_hw_start_passive(can_ctrl_t *c, uint32_t now_ms)
 void can_hw_stop_passive(can_ctrl_t *c)
 {
     if (!c || !c->cfg) return;
-    /* A grounded TJA1051 S pin remains in Normal; bxCAN SILM is the safety gate. */
+    transceiver_follow_mode(c->cfg, CAN_MODE_SILENT);
     can_hw_abort_mailboxes(c);
     CAN_TypeDef *can = c->cfg->can;
     if (c->scan_active && can_enter_init(can)) {
@@ -364,8 +370,10 @@ bool can_hw_set_controller_mode(can_ctrl_t *c, can_mode_t mode)
          !can_tx_bitrate_allowed(c->current_bitrate))) return false;
     CAN_TypeDef *can = c->cfg->can;
     if (!can_enter_init(can)) return false;
+    if (mode != CAN_MODE_NORMAL) transceiver_follow_mode(c->cfg, mode);  /* silence first */
     can->BTR = (can->BTR & ~(CAN_BTR_SILM | CAN_BTR_LBKM)) | mode_btr_bits(mode);
     c->mode = mode;
+    if (mode == CAN_MODE_NORMAL) transceiver_follow_mode(c->cfg, mode);
     return can_leave_init(can);
 }
 

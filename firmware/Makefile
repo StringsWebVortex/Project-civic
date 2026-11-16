@@ -110,7 +110,6 @@ FIRMWARE_SRCS = \
   Core/Src/can_signal_profiler.c \
   Core/Src/obd2_decoder.c \
   Core/Src/system_stm32f4xx.c \
-  Core/Src/uart_dma.c \
   Core/Src/periph_timing.c \
   Core/Src/isotp.c \
   Core/Src/uds_client.c \

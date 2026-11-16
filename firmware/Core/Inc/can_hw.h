@@ -7,11 +7,12 @@
  * globals. This layer turns every per-controller item into fields of a
  * can_ctrl_t so the firmware can run two independent buses at once:
  *
- *   bus 0  CAN1  F-CAN (powertrain)  PB8 RX / PB9 TX (AF9), 500 kbit/s
- *   bus 1  CAN2  B-CAN (body)        PB5 RX / PB6 TX (AF9), 125 kbit/s
+ *   bus 0  CAN1  F-CAN (powertrain)  PD0 RX / PD1 TX (AF9), S = PD2
+ *   bus 1  CAN2  B-CAN (body)        PB12 RX / PB13 TX (AF9), S = PD3
  *
- * Both TJA1051 S inputs are grounded by the owner's schematic (Normal mode).
- * Passive operation is enforced with bxCAN BTR.SILM; no MCU S-pin control.
+ * TX is push-pull (RM0090 AF output). Each TJA1051 S input (pin 8) is driven
+ * by the MCU: HIGH (transceiver silent) in every bxCAN mode except Normal,
+ * LOW only in Normal. Silent is thus enforced twice: BTR.SILM and S pin.
  *
  * CAN1 and CAN2 share the 28 filter banks and one filter-master register
  * (RM0090 32.7.4): CAN2 has no registers of its own, so filter setup is done
@@ -60,6 +61,8 @@ typedef struct {
     GPIO_TypeDef *gpio;           /* port carrying RX+TX                      */
     uint8_t       rx_pin, tx_pin; /* pin numbers on that port                 */
     uint8_t       af;             /* alternate function number (9 for CAN)    */
+    GPIO_TypeDef *s_gpio;         /* TJA1051 S (silent) pin port, NULL = none  */
+    uint8_t       s_pin;          /* TJA1051 S pin number                     */
     uint8_t       filter_bank;    /* accept-all bank index for this controller*/
     bool          is_can2;        /* true for the CAN2 filter slave           */
     const char   *label;          /* "F" or "B" for status lines              */
@@ -149,7 +152,7 @@ void can_hw_sce(can_ctrl_t *c);
 bool can_hw_tx_window_open(const can_ctrl_t *c, uint32_t now_ms);
 
 /* ARM: switches the bxCAN controller from SILM to Normal for `seconds`.
- * The external TJA1051 S pins are grounded and are not MCU-controlled.
+ * The TJA1051 S pin is driven LOW together with bxCAN Normal.
  * Returns an error token (NULL = success). */
 const char *can_hw_tx_arm(can_ctrl_t *c, uint32_t seconds, uint32_t now_ms, bool clock_ok);
 
