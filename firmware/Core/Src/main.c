@@ -62,11 +62,13 @@
 #include "uds_client.h"
 #include "ecu_scan.h"
 #include "can_hw.h"
+#include "device_id.h"
 #include "remote_start.h"
 #include "gear_led.h"
 #ifdef NET_DASHBOARD
 #include "net_usb.h"
 #include "dash.h"
+#include "dash_store.h"
 #endif
 #ifdef USB_CDC_ENABLED
 #include "usb_gvret.h"
@@ -689,6 +691,115 @@ static bool can_ability_command(const char *cmd, char **save)
     return false;
 }
 
+/* ── connected-device identification / target selection ───────────────── */
+#ifdef NET_DASHBOARD
+static bool dev_append(uint8_t type, uint32_t id, const void *data, uint16_t len)
+{ return evst_append(type, id, data, len); }
+#else
+static bool dev_append(uint8_t type, uint32_t id, const void *data, uint16_t len)
+{ (void)type; (void)id; (void)data; (void)len; return false; }
+#endif
+
+static void dev_announce(void)
+{
+    dev_db_t *db = dev_global();
+    char s[112];
+    const dev_profile_t *p = dev_find(db, db->target);
+    if (p) (void)snprintf(s, sizeof s, "DEVICE,TARGET,%lu,%s\r\n", (unsigned long)p->pid, p->name);
+    else   (void)snprintf(s, sizeof s, "DEVICE,DETECTING\r\n");
+    emit(s);
+}
+
+static void dev_service(void)
+{
+    dev_db_t *db = dev_global();
+    const dev_event_t ev = dev_step(db, system_millis);
+    char s[112];
+    if (ev == DEV_EV_DETECTED) {
+        const dev_profile_t *p = dev_find(db, db->best_pid);
+        (void)snprintf(s, sizeof s, "DEVICE,DETECTED,%lu,%s,%u\r\n", (unsigned long)db->best_pid,
+                       p ? p->name : "?", (unsigned)db->best_score);
+        emit(s);
+        if (p && (p->flags & DEV_FLAG_SEED)) (void)dev_persist_profile(db, p->pid, dev_append);
+    } else if (ev == DEV_EV_NEW) {
+        char nm[DEV_NAME_MAX + 24u]; dev_suggest_name(db, nm, sizeof nm);
+        (void)snprintf(s, sizeof s, "DEVICE,NEW,%s,%u\r\n", nm, (unsigned)db->best_score);
+        emit(s);
+    }
+}
+
+static bool device_command(const char *cmd, char **save)
+{
+    if (strcmp(cmd, "DEVICE") != 0) return false;
+    dev_db_t *db = dev_global();
+    char *a = strtok_r(NULL, ",", save);
+    char s[112];
+    if (!a) { emit("DEVICE,ERR,BAD_REQUEST\r\n"); return true; }
+    if (strcmp(a, "STATUS") == 0) { dev_announce(); return true; }
+    if (strcmp(a, "LIST") == 0) {
+        for (uint8_t i = 0u; i < db->count; i++) {
+            const dev_profile_t *p = &db->prof[i];
+            (void)snprintf(s, sizeof s, "DEVICE,ITEM,%lu,%s,%lu,%lu,%u,%s\r\n", (unsigned long)p->pid, p->name,
+                           (unsigned long)p->bitrate[0], (unsigned long)p->bitrate[1], (unsigned)p->nids,
+                           (p->flags & DEV_FLAG_VERIFIED) ? "VERIFIED" : "SEED");
+            emit(s);
+        }
+        emit("DEVICE,LIST,END\r\n");
+        return true;
+    }
+    if (strcmp(a, "OBSERVE") == 0) {   /* re-run identification now */
+        dev_observe_start(db, system_millis);
+        for (uint8_t b = 0u; b < 2u; b++) dev_set_bitrate(db, b, s_can[b].can_locked ? s_can[b].current_bitrate : 0u);
+        emit("DEVICE,OBSERVING\r\n");
+        return true;
+    }
+    if (strcmp(a, "DETECT") == 0) {    /* add/detect new device: detect on every boot */
+        dev_detect_mode(db);
+        (void)dev_persist_target(db, dev_append);
+        dev_observe_start(db, system_millis);
+        for (uint8_t b = 0u; b < 2u; b++) dev_set_bitrate(db, b, s_can[b].can_locked ? s_can[b].current_bitrate : 0u);
+        dev_announce();
+        return true;
+    }
+    if (strcmp(a, "SELECT") == 0) {
+        uint32_t pid;
+        if (!parse_u32(strtok_r(NULL, ",", save), 10, 0xFFFFFFFFu, &pid) || !dev_select(db, pid)) {
+            emit("DEVICE,ERR,NOT_FOUND\r\n"); return true; }
+        const bool ok = dev_persist_target(db, dev_append);
+        dev_announce();
+        if (!ok) emit("DEVICE,ERR,SAVE_FAILED\r\n");
+        return true;
+    }
+    if (strcmp(a, "ADD") == 0) {
+        uint32_t pid = 0u;
+        const dev_add_t r = dev_add(db, strtok_r(NULL, ",", save), &pid);
+        const dev_profile_t *p = dev_find(db, pid);
+        if (r == DEV_ADD_OK) {
+            const bool ok = dev_persist_profile(db, pid, dev_append);
+            (void)snprintf(s, sizeof s, "DEVICE,ADDED,%lu,%s\r\n", (unsigned long)pid, p ? p->name : "?");
+            emit(s);
+            if (!ok) emit("DEVICE,ERR,SAVE_FAILED\r\n");
+        } else if (r == DEV_ADD_EXISTS) {
+            (void)snprintf(s, sizeof s, "DEVICE,EXISTS,%lu,%s\r\n", (unsigned long)pid, p ? p->name : "?");
+            emit(s);
+        } else {
+            emit(r == DEV_ADD_FULL ? "DEVICE,ERR,FULL\r\n" : r == DEV_ADD_NO_DATA ? "DEVICE,ERR,NO_TRAFFIC\r\n"
+                                   : "DEVICE,ERR,BAD_NAME\r\n");
+        }
+        return true;
+    }
+    if (strcmp(a, "RENAME") == 0) {
+        uint32_t pid;
+        if (!parse_u32(strtok_r(NULL, ",", save), 10, 0xFFFFFFFFu, &pid) ||
+            !dev_rename(db, pid, strtok_r(NULL, ",", save))) { emit("DEVICE,ERR,BAD_RENAME\r\n"); return true; }
+        if (!dev_persist_profile(db, pid, dev_append)) emit("DEVICE,ERR,SAVE_FAILED\r\n");
+        else emit("DEVICE,RENAMED\r\n");
+        return true;
+    }
+    emit("DEVICE,ERR,BAD_REQUEST\r\n");
+    return true;
+}
+
 /* ── host command parser ────────────────────────────────────────────────── */
 static void host_command(char *lb)
 {
@@ -696,6 +807,7 @@ static void host_command(char *lb)
     char *cmd = strtok_r(lb, ",", &save);
     if (!cmd) return;
     if (can_ability_command(cmd, &save)) return;
+    if (device_command(cmd, &save)) return;
 
     if (strcmp(cmd, "ARM") == 0) {
         if (!veh_key_on()) { emit("TX,ERR,KEY_NOT_ON\r\n"); return; }
@@ -1100,6 +1212,7 @@ static void bus_periodic(can_ctrl_t *c, uint32_t *last_stats_ms, uint32_t *last_
 
     switch (can_hw_scan_step(c, system_millis)) {
     case CAN_SCAN_LOCKED: {
+        dev_set_bitrate(dev_global(), c->cfg->bus_index, c->current_bitrate);
         char s[48]; (void)snprintf(s,sizeof s,"STATUS,%s,LOCK,%lu\r\n",c->cfg->label,(unsigned long)c->current_bitrate); emit(s);
         break; }
     case CAN_SCAN_STEPPED: {
@@ -1320,6 +1433,7 @@ int main(void)
     bus_clocks_update();
     can_hw_set_pclk1(pclk1_hz);
 
+    dev_init(dev_global());   /* seed profiles; journal replay adds the saved ones */
     can_capture_queue_init(&capture_queue[0]);
     can_capture_queue_init(&capture_queue[1]);
     for (uint32_t i = 0; i < 2u; i++) { can_profiler_init(&profiler[i]); can_profiler_set_bus(&profiler[i], (uint8_t)i); }
@@ -1371,6 +1485,10 @@ int main(void)
     else if (!dash_init(dash_command, &capture_queue[0], &capture_queue[1])) emit("STATUS,SYS,NET,DASH_DEGRADED\r\n");
     else emit("STATUS,SYS,NET,STARTED\r\n");
 #endif
+    /* Saved target: boot straight into it. Otherwise identify the network
+     * on every boot until the user selects a device. */
+    if (dev_global()->target == 0u) dev_observe_start(dev_global(), system_millis);
+    dev_announce();
     if (!iwdg_start()) emit("STATUS,SYS,WATCHDOG,FAILED\r\n");
 
     uint32_t last_stats[2] = {0,0}, last_dwell[2] = {0,0};
@@ -1397,6 +1515,7 @@ int main(void)
         }
         veh_update();
         write_service();
+        dev_service();
         rs_in.armed = s_can[0].tx_armed;
         remote_start_apply(remote_start_poll(&rs, &rs_in, system_millis));
         start_crank_can();
@@ -1446,6 +1565,7 @@ int main(void)
                     got_frame = true;
                     processed_can_frames++;
                     processed_last_activity_ms = system_millis;
+                    dev_observe(dev_global(), frame.bus, frame.identifier, frame.extended != 0u);
                     char csv[80];
                     if (can_capture_frame_to_csv(&frame, csv, sizeof csv)) emit(csv);
                     char pid[OBD2_LINE_CAPACITY];

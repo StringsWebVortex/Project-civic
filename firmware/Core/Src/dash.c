@@ -14,6 +14,7 @@
 #include "lwip/tcp.h"
 #include "web_server.h"
 #include "dash_store.h"
+#include "device_id.h"
 #include "flash_store.h"
 #include "gvret.h"
 #include "can_dbc.h"
@@ -320,6 +321,7 @@ static bool saveEvents(void)
 /* compaction callbacks */
 static bool rewriteEvents(void)
 {
+    if (!dev_rewrite(dev_global(), evst_append)) return false;   /* identity data first */
     for (size_t i = 0; i < eventCount; ++i)
         if (!evst_append(EV_REC_EVENT, eventStore[i].id, &eventStore[i], (uint16_t)offsetof(DtcEvent, lastReportedMs)))
             return false;
@@ -334,6 +336,7 @@ static bool snapLive(uint32_t id)
 
 static void replayRecord(uint8_t type, uint32_t id, const uint8_t *d, uint16_t len)
 {
+    dev_replay(dev_global(), type, id, d, len);   /* device profiles + target */
     if (type == EV_REC_EVENT && len == offsetof(DtcEvent, lastReportedMs)) {
         DtcEvent *e = findEvent(id);
         if (!e) { if (eventCount >= EVENT_MAX) return; e = &eventStore[eventCount++]; }
