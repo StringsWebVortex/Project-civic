@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "lwip/tcp.h"
+#include "uart_esp.h"
 
 extern volatile uint32_t system_millis;
 
@@ -448,7 +449,13 @@ bool ws_send_txt_ok(uint8_t num, const char *s, size_t n)
 
 void ws_broadcast_txt(const char *s, size_t n)
 {
+    /* lwIP WS clients (USB-CDC-ECM direct connection) */
     for (uint8_t i = 0; i < WS_MAX_CLIENTS; i++) if (s_ws[i].open) (void)ws_write_frame(&s_ws[i], 0x1u, s, n);
+
+    /* Mirror to ESP32 UART bridge — ESP forwards to WiFi WS clients.
+     * uart_esp_emit_line() sends data + '\n' in one DMA transfer so
+     * the ESP can reassemble line-delimited JSON on the other end. */
+    uart_esp_emit_line(s, n);
 }
 
 uint8_t ws_connected_clients(void)

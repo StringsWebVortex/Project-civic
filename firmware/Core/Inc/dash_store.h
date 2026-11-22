@@ -19,7 +19,7 @@ uint32_t logst_fill_permille(void);
 uint32_t logst_seq(void);
 
 /* ── event journal ── */
-enum { EV_REC_EVENT = 2, EV_REC_EVENT_DEL = 3, EV_REC_SNAP_ROW = 4, EV_REC_SNAP_DEL = 5 };
+enum { EV_REC_EVENT = 2, EV_REC_EVENT_DEL = 3, EV_REC_SNAP_ROW = 4, EV_REC_SNAP_DEL = 5, EV_REC_LABEL = 11 };
 
 typedef void (*evst_replay_fn)(uint8_t type, uint32_t id, const uint8_t *data, uint16_t len);
 /* Rewrites the live state into a fresh sector during compaction. */

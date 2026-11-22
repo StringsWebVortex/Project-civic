@@ -66,6 +66,7 @@
 #include "log_mail.h"
 #include "remote_start.h"
 #include "gear_led.h"
+#include "uart_esp.h"
 #ifdef NET_DASHBOARD
 #include "net_usb.h"
 #include "dash.h"
@@ -208,6 +209,7 @@ static void emit(const char *s)
 #ifdef NET_DASHBOARD
     dash_on_line(s);              /* the dashboard parses every STM32 line */
 #endif
+    uart_esp_emit(s);             /* mirror every line to ESP32 over USART2 */
     out_lines_emitted++;
     out_last_activity_ms = system_millis;
 }
@@ -1433,6 +1435,7 @@ int main(void)
     clock_ok = clock_init_168mhz();
     bus_clocks_update();
     can_hw_set_pclk1(pclk1_hz);
+    uart_esp_init();              /* USART2 PA2/PA3 '-'> ESP32 GPIO16/17 */
 
     dev_init(dev_global());   /* seed profiles; journal replay adds the saved ones */
     mail_init(mail_global()); /* default addresses; journal replay restores settings */
@@ -1526,6 +1529,12 @@ int main(void)
 #ifdef NET_DASHBOARD
         net_usb_poll();
         dash_poll();
+        /* Poll UART RX from ESP32 — feed received lines into dashboard parser */
+        {   const char *esp_line;
+            while ((esp_line = uart_esp_rx_line()) != NULL) {
+                dash_on_line(esp_line);
+            }
+        }
 #endif
 #ifdef USB_CDC_ENABLED
         usb_gvret_poll();

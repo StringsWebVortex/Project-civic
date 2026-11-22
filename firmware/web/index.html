@@ -1,6 +1,6 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vehicle Telemetry Dashboard</title><style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font:13px/1.5 system-ui,sans-serif;background:#0d1117;color:#c9d1d9;min-height:100vh;padding:10px 12px 92px;transition:background .18s,color .18s}
+body{font:13px/1.5 system-ui,sans-serif;background:#0d1117;color:#c9d1d9;min-height:100vh;padding:10px 12px 20px;transition:background .18s,color .18s;overscroll-behavior-x:none}
 .page-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px}
 .page-head h1{margin:0}
 #globalModeToggle{flex:0 0 auto;padding:7px 15px;border:1px solid #58a6ff;border-radius:7px;background:#1c3a5e;color:#e6edf3;font-size:.75rem;font-weight:800;letter-spacing:.04em;cursor:pointer}
@@ -29,15 +29,19 @@ body.write-mode #globalModeToggle,body.write-mode #writeModeBanner,body.write-mo
 body.write-mode{animation:wbg 1.2s ease-in-out infinite}
 @keyframes wbg{0%,100%{background-color:#1a1006}50%{background-color:#3a1d06}}
 @media(max-width:600px){.page-head{align-items:flex-start;flex-wrap:wrap}.page-head h1{font-size:1rem}#globalModeToggle{margin-left:auto}}
-#sideNav{position:fixed;z-index:100;left:0;right:0;top:auto;bottom:0;width:100%;min-height:66px;padding:7px 10px calc(7px + env(safe-area-inset-bottom));background:#111820;border-top:1px solid #30363d;overflow-x:auto;overflow-y:hidden;display:flex;flex-direction:row;align-items:center;gap:5px;box-shadow:0 -5px 18px #0008;scrollbar-width:thin}
-#sideNav .nav-brand{font-size:.72rem;font-weight:800;color:#e6edf3;padding:5px 9px;border-right:1px solid #30363d;margin-right:4px;white-space:nowrap;flex:0 0 auto}
-#sideNav .nav-label{display:none}
-#sideNav a{display:block;white-space:nowrap;flex:0 0 auto;padding:8px 10px;border-radius:7px;color:#aeb8c4;text-decoration:none;font-size:.72rem;border:1px solid transparent}
+#sideNav{position:fixed;z-index:200;left:0;top:0;bottom:0;width:280px;background:#111820;border-right:1px solid #30363d;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;padding:16px 0 calc(16px + env(safe-area-inset-bottom));gap:2px;box-shadow:5px 0 24px #000c;transform:translateX(-100%);transition:transform .28s cubic-bezier(.4,0,.2,1);scrollbar-width:thin}
+#sideNav.open{transform:translateX(0)}
+#navOverlay{position:fixed;z-index:199;inset:0;background:rgba(0,0,0,.55);opacity:0;pointer-events:none;transition:opacity .28s ease}
+#navOverlay.open{opacity:1;pointer-events:auto}
+#sideNav .nav-brand{font-size:.82rem;font-weight:800;color:#e6edf3;padding:12px 16px 10px;border-bottom:1px solid #30363d;margin-bottom:6px;white-space:nowrap}
+#sideNav .nav-label{display:block;font-size:.65rem;font-weight:700;color:#58a6ff;text-transform:uppercase;letter-spacing:.06em;padding:10px 16px 3px;margin-top:4px}
+#navSwipeHint{position:fixed;left:0;top:50%;transform:translateY(-50%);z-index:150;width:14px;height:80px;background:linear-gradient(90deg,rgba(88,166,255,.35),transparent);border-radius:0 10px 10px 0;pointer-events:none;opacity:.6;transition:opacity .3s}
+#sideNav a{display:block;white-space:nowrap;padding:9px 16px;margin:0 8px;border-radius:7px;color:#aeb8c4;text-decoration:none;font-size:.78rem;border:1px solid transparent;transition:background .15s,color .15s}
 #sideNav a:hover,#sideNav a.active{background:#1c2b3a;color:#79c0ff;border-color:#29445e}
-#sideNav .nav-spacer{display:none}
-#sideNav .nav-foot{display:none}
-#backTop{position:fixed;right:18px;bottom:82px;z-index:90;background:#1c3a5e;border:1px solid #58a6ff;color:#e6edf3;border-radius:20px;padding:8px 13px;font-weight:700;cursor:pointer;box-shadow:0 3px 12px #0008}
-@media(max-width:760px){body{padding:8px 9px calc(88px + env(safe-area-inset-bottom))}#sideNav{min-height:62px;padding:6px 7px calc(6px + env(safe-area-inset-bottom));gap:3px}#sideNav .nav-brand{display:none}#sideNav a{padding:7px 9px;font-size:.68rem}#backTop{right:12px;bottom:76px}}
+#sideNav .nav-spacer{flex:1}
+#sideNav .nav-foot{font-size:.62rem;color:#484f58;padding:8px 16px;text-align:center}
+#backTop{position:fixed;right:18px;bottom:22px;z-index:90;background:#1c3a5e;border:1px solid #58a6ff;color:#e6edf3;border-radius:20px;padding:8px 13px;font-weight:700;cursor:pointer;box-shadow:0 3px 12px #0008}
+@media(max-width:760px){body{padding:8px 9px 16px;overscroll-behavior-x:none;touch-action:pan-y}#sideNav{width:260px;touch-action:pan-y}#sideNav a{padding:8px 14px;font-size:.74rem}#backTop{right:12px;bottom:16px}}
 h1{font-size:1.1rem;font-weight:700;color:#c9d1d9;margin-bottom:10px;letter-spacing:.02em}
 /* ── top metric cards ── */
 .top-cards{display:grid;grid-template-columns:repeat(4,1fr) 220px;gap:8px;margin-bottom:8px;align-items:start}
@@ -115,7 +119,23 @@ tbody td{padding:4px 8px;border-bottom:1px solid #21262d;white-space:nowrap}
 @media(max-width:900px){.top-cards{grid-template-columns:repeat(2,1fr)}.main{grid-template-columns:1fr}}
 body.detecting #deviceBanner~*:not(#settings):not(script){display:none}
 body.detecting #deviceBanner{font-size:1.05rem;padding:22px;text-align:center;margin-top:40px}
+/* ── Edit Layout Mode ── */
+@keyframes wiggle{0%{transform:rotate(-.7deg)}25%{transform:rotate(.7deg)}50%{transform:rotate(-.5deg)}75%{transform:rotate(.5deg)}100%{transform:rotate(-.7deg)}}
+body.edit-layout-mode .dash-panel{animation:wiggle .3s ease-in-out infinite;position:relative}
+body.edit-layout-mode .dash-panel.panel-hidden{opacity:.45}
+body.edit-layout-mode .dash-panel.panel-visible{opacity:1}
+.panel-edit-bar{display:none;position:absolute;top:4px;right:4px;z-index:50;gap:4px;align-items:center}
+body.edit-layout-mode .panel-edit-bar{display:flex}
+.panel-eye-btn{width:28px;height:28px;border-radius:50%;border:1px solid #58a6ff;background:#0d2238;color:#58a6ff;font-size:.85rem;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;padding:0}
+.panel-eye-btn:active{background:#1c3a5e}
+.panel-drag-handle{width:28px;height:28px;border-radius:50%;border:1px solid #30363d;background:#161b22;color:#8b949e;font-size:.8rem;cursor:grab;display:flex;align-items:center;justify-content:center;line-height:1;padding:0;touch-action:none}
+.panel-drag-handle:active{cursor:grabbing;background:#1c3a5e;color:#58a6ff}
+body.edit-layout-mode .dash-panel.drag-over{border:2px dashed #58a6ff !important}
+#editFinishBtn{display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:310;padding:12px 36px;border:2px solid #3fb950;border-radius:12px;background:#1a3829;color:#56d364;font-size:.9rem;font-weight:800;cursor:pointer;box-shadow:0 4px 20px #000a;letter-spacing:.04em}
+body.edit-layout-mode #editFinishBtn{display:block}
 </style></head><body>
+<div id="navOverlay"></div>
+<div id="navSwipeHint"></div>
 <nav id="sideNav" aria-label="Dashboard navigation">
   <div class="nav-brand">CIVIC CAN<br><span style="font-size:.65rem;color:#8b949e;font-weight:500">Vehicle Monitor</span></div>
   <div class="nav-label">Overview</div>
@@ -136,6 +156,7 @@ body.detecting #deviceBanner{font-size:1.05rem;padding:22px;text-align:center;ma
   <a href="/log.csv?historical=1">◷ Historical Data (CSV)</a>
   <a href="#fwCard">↻ Firmware Update</a>
   <div class="nav-spacer"></div>
+  <a href="javascript:void(0)" onclick="enterEditMode()" style="color:#58a6ff;font-weight:700">✎ Edit Dash Layout</a>
   <a href="#top">↑ Back to Dashboard Top</a>
   <div class="nav-foot">Navigation stays available while scrolling</div>
 </nav>
@@ -334,8 +355,8 @@ body.detecting #deviceBanner{font-size:1.05rem;padding:22px;text-align:center;ma
   </div>
   <div class="can-wrap">
     <table>
-      <thead><tr><th>ID</th><th>DLC</th><th>B0</th><th>B1</th><th>B2</th><th>B3</th><th>B4</th><th>B5</th><th>B6</th><th>B7</th><th>Rate</th><th>Frames</th><th>Time</th></tr></thead>
-      <tbody id="canBody"><tr><td colspan="13" style="color:#8b949e;padding:10px">Waiting for incoming CAN frames…</td></tr></tbody>
+      <thead><tr><th>ID</th><th>DLC</th><th>B0</th><th>B1</th><th>B2</th><th>B3</th><th>B4</th><th>B5</th><th>B6</th><th>B7</th><th>Rate</th><th>Frames</th><th>Time</th><th>Label</th><th></th></tr></thead>
+      <tbody id="canBody"><tr><td colspan="15" style="color:#8b949e;padding:10px">Waiting for incoming CAN frames…</td></tr></tbody>
     </table>
   </div>
 </div>
@@ -833,7 +854,7 @@ function drawScat(){
 function updCAN(){
   const ids=Object.keys(frm$).sort((a,b)=>(frm$[b].rate||0)-(frm$[a].rate||0)).slice(0,60);
   if(!ids.length){
-    $('canBody').innerHTML='<tr><td colspan="13" style="color:#8b949e;padding:8px">Waiting…</td></tr>';
+    $('canBody').innerHTML='<tr><td colspan="15" style="color:#8b949e;padding:8px">Waiting…</td></tr>';
     $('canBadge').textContent='WAITING FOR FRAMES'; $('canBadge').className='live-badge off';
     return;
   }
@@ -846,8 +867,19 @@ function updCAN(){
       const col=b!=='--'&&p!==undefined&&p!==b?'#f85149':(b!=='--'?'#56d364':'#30363d');
       return `<td style="color:${col}">${b}</td>`;
     }).join('');
-    return `<tr><td>${id}</td><td>${s.dlc||'—'}</td>${bCells}<td>${s.rate?s.rate.toFixed(1):'—'} Hz</td><td>${s.n}</td><td style="color:#8b949e">${t}</td></tr>`;
+    const lbl=s.label||'';
+    return `<tr><td>${id}</td><td>${s.dlc||'—'}</td>${bCells}<td>${s.rate?s.rate.toFixed(1):'—'} Hz</td><td>${s.n}</td><td style="color:#8b949e">${t}</td><td id="lbl_${id}" style="color:#79c0ff;max-width:120px;overflow:hidden;text-overflow:ellipsis">${esc(lbl)}</td><td><button class="btn btn-sm" onclick="editFrameLabel('${id}')" style="padding:1px 6px;font-size:.6rem">✎</button></td></tr>`;
   }).join('');
+}
+
+/* ── Frame label editing ── */
+function editFrameLabel(id){
+  const cur=(frm$[id]&&frm$[id].label)||'';
+  const lbl=prompt('Label for frame 0x'+id+':',cur);
+  if(lbl===null) return;
+  const txt=lbl.trim().substring(0,15);
+  if(frm$[id]) frm$[id].label=txt;
+  wsSend({op:'set_label',id:id,label:txt});
 }
 
 /* ── Signal Explorer ── */
@@ -1677,7 +1709,8 @@ function onMsg(m){
       const s=frm$[id]||(frm$[id]={n:0,rate:0,ts:0,bytes:[],prev:[],dlc:0,label:'',bus:0});
       s.prev=[...s.bytes]; s.n=r[4]; s.rate=r[5]; s.ts=Date.now(); s.dlc=r[2]; s.bus=r[1];
       s.bytes=Array.from({length:8},(_,i)=>hex.length>=(i+1)*2?hex.substr(i*2,2):'--');
-      if(prof$[id]&&prof$[id].label) s.label=prof$[id].label;
+      if(r[6]) s.label=r[6];
+      else if(prof$[id]&&prof$[id].label) s.label=prof$[id].label;
       if(r[1]===0&&id==='17C'&&hex.length>=2) bcPedal=parseInt(hex.substr(0,2),16);
     });
     busFps=m.fps||[0,0]; busBps=m.bps||[0,0]; if(m.bitrate) lastBitrate=m.bitrate;
@@ -1758,6 +1791,12 @@ function onMsg(m){
   }
   if(m.type==='tx'){ $('txStat').textContent='STM32: '+(m.message||''); return; }
   if(m.type==='stm32_progress'){ handleFwProgress(m); return; }
+  if(m.type==='label_update'){
+    const id=m.id, lbl=m.label||'';
+    if(frm$[id]) frm$[id].label=lbl;
+    if(prof$[id]) prof$[id].label=lbl;
+    return;
+  }
 }
 
 /* ── remote engine start helpers ── */
@@ -1789,28 +1828,96 @@ function connect(){
   };
   sock.onclose=()=>{ $('statusBar').textContent='Disconnected — reconnecting…'; setTimeout(connect,1500); };
   sock.onerror=()=>$('statusBar').textContent='WebSocket error';
-  sock.onmessage=e=>{ try{onMsg(JSON.parse(e.data));}catch{} };
+  sock.onmessage=e=>{ window._wsMsgCount=(window._wsMsgCount||0)+1; try{onMsg(JSON.parse(e.data));}catch(ex){window._wsParseErr=(window._wsParseErr||0)+1;} if(window._dbgBar)window._dbgBar.textContent='WS msgs:'+window._wsMsgCount+' errs:'+(window._wsParseErr||0)+' last:'+(e.data||'').substring(0,60); };
 }
 
 /* ── 1s redraw loop ── */
 setInterval(()=>{ drawRpm(); drawTemp(); drawScat(); updQuality(); updCAN(); updSigs(); }, 1000);
 window.addEventListener('resize',()=>{ drawRpm(); drawTemp(); drawScat(); });
 connect();
-/* Sidebar section navigation: smooth scroll, active item, and clear return path. */
+/* Sidebar drawer navigation: swipe-from-left-edge to open, tap overlay to close.
+   Same smooth scroll + active item tracking as before. */
 (function initNavigation(){
   const nav=document.getElementById('sideNav');
+  const overlay=document.getElementById('navOverlay');
+  const hint=document.getElementById('navSwipeHint');
   if(!nav) return;
   const links=[...nav.querySelectorAll('a[href^="#"]')];
+
+  /* ── open / close helpers ── */
+  function openNav(){ nav.classList.add('open'); overlay.classList.add('open'); if(hint) hint.style.opacity='0'; }
+  function closeNav(){ nav.classList.remove('open'); overlay.classList.remove('open'); if(hint) hint.style.opacity='.6'; }
+  overlay.addEventListener('click', closeNav);
+
+  /* ── swipe-from-left-edge gesture ── */
+  let touchStartX=0, touchStartY=0, swiping=false, navDrag=false, locked=false;
+  const EDGE=35, THRESHOLD=50;
+
+  document.addEventListener('touchstart', function(e){
+    const t=e.touches[0];
+    touchStartX=t.clientX; touchStartY=t.clientY;
+    locked=false;
+    swiping=(touchStartX < EDGE && !nav.classList.contains('open'));
+    navDrag=(nav.classList.contains('open'));
+  }, {passive:true});
+
+  /* MUST be non-passive so preventDefault() stops browser back-swipe */
+  document.addEventListener('touchmove', function(e){
+    if(!swiping && !navDrag) return;
+    const dx=e.touches[0].clientX - touchStartX;
+    const dy=e.touches[0].clientY - touchStartY;
+    if(!locked){
+      if(Math.abs(dy) > Math.abs(dx)*1.5){ swiping=false; navDrag=false; return; }
+      if(Math.abs(dx) > 10) locked=true; else return;
+    }
+    /* Prevent browser back/forward navigation gesture */
+    e.preventDefault();
+    if(swiping){
+      const pct=Math.min(dx/280, 1);
+      nav.style.transition='none';
+      nav.style.transform='translateX('+Math.min(0, -280+dx)+'px)';
+      overlay.style.transition='none';
+      overlay.style.opacity=String(pct*0.55);
+      overlay.style.pointerEvents='auto';
+    }
+    if(navDrag && dx < -10){
+      const off=Math.max(dx, -280);
+      nav.style.transition='none';
+      nav.style.transform='translateX('+off+'px)';
+      overlay.style.transition='none';
+      overlay.style.opacity=String(Math.max(0, (280+off)/280*0.55));
+    }
+  }, {passive:false});
+
+  document.addEventListener('touchend', function(e){
+    const dx=e.changedTouches[0].clientX - touchStartX;
+    nav.style.transition=''; nav.style.transform='';
+    overlay.style.transition=''; overlay.style.opacity='';
+    overlay.style.pointerEvents='';
+    if(swiping && dx > THRESHOLD) openNav();
+    else if(navDrag && dx < -THRESHOLD) closeNav();
+    else if(swiping) closeNav();
+    swiping=false; navDrag=false; locked=false;
+  }, {passive:true});
+
+  /* ── active item tracking (scroll spy) ── */
   function mark(){
     const y=window.scrollY+120;
     let current='#top';
     links.forEach(a=>{const el=document.querySelector(a.getAttribute('href'));if(el&&el.offsetTop<=y)current=a.getAttribute('href');});
     links.forEach(a=>a.classList.toggle('active',a.getAttribute('href')===current));
   }
+
+  /* ── nav link clicks: scroll + close drawer ── */
   links.forEach(a=>a.addEventListener('click',e=>{
     const target=document.querySelector(a.getAttribute('href'));
     if(target){e.preventDefault();target.scrollIntoView({behavior:'smooth',block:'start'});history.replaceState(null,'',a.getAttribute('href'));}
+    closeNav();
   }));
+
+  /* Also close on download links (non-hash hrefs) */
+  [...nav.querySelectorAll('a:not([href^="#"])')].forEach(a=>a.addEventListener('click',()=>{ closeNav(); }));
+
   window.addEventListener('scroll',mark,{passive:true});mark();
 })();
 </script>
@@ -1982,5 +2089,187 @@ function handleFwProgress(m){
   document.getElementById('stm32Pct').textContent=pct+'%';
   document.getElementById('stm32Msg').textContent=m.msg||'';
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+ *  EDIT DASH LAYOUT — iOS-style wiggle, show/hide, drag-and-drop reorder
+ * ══════════════════════════════════════════════════════════════════════════ */
+(function(){
+  /* ── Panel registry ── */
+  const PANEL_IDS=[
+    'top-cards-wrap','systemsCard','decSignals','stateCapture',
+    'liveEngineSensors','events','main-grid','canAnalyzer',
+    'signalExplorer','sigLearn','settings','canAbilities',
+    'controllers','diagnostics','operatingMode','fwCard'
+  ];
+  const PANEL_NAMES={
+    'top-cards-wrap':'Top Metric Cards','systemsCard':'Vehicle Systems',
+    'decSignals':'Decoded Signals','stateCapture':'State Capture',
+    'liveEngineSensors':'Live Engine Sensors','events':'Fault Events',
+    'main-grid':'Charts Grid','canAnalyzer':'CAN Analyzer',
+    'signalExplorer':'Signal Explorer','sigLearn':'Signal Learning',
+    'settings':'Settings','canAbilities':'bxCAN Abilities',
+    'controllers':'Controllers','diagnostics':'Diagnostics',
+    'operatingMode':'Operating Mode','fwCard':'Firmware Update'
+  };
+
+  let editActive=false;
+
+  /* ── Load saved layout ── */
+  function loadLayout(){
+    try{
+      const h=JSON.parse(localStorage.getItem('dashHidden')||'[]');
+      h.forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
+      const ord=JSON.parse(localStorage.getItem('dashOrder')||'[]');
+      if(ord.length){
+        const parent=document.getElementById(PANEL_IDS[0])?.parentNode;
+        if(parent){
+          /* anchor = the element before our first panel */
+          const refNode=document.getElementById('vehBar');
+          ord.forEach(id=>{const el=document.getElementById(id);if(el)parent.appendChild(el);});
+        }
+      }
+    }catch(e){}
+  }
+
+  /* ── Wrap panels so we can control them ── */
+  function initPanels(){
+    /* Wrap top-cards div */
+    const tc=document.querySelector('.top-cards');
+    if(tc && !tc.id) tc.id='top-cards-wrap';
+    /* Wrap main grid */
+    const mg=document.querySelector('.main');
+    if(mg && !mg.id) mg.id='main-grid';
+    /* Add dash-panel class + edit bar to each panel */
+    PANEL_IDS.forEach(id=>{
+      const el=document.getElementById(id);
+      if(!el) return;
+      el.classList.add('dash-panel');
+      if(el.querySelector('.panel-edit-bar')) return;
+      const bar=document.createElement('div');
+      bar.className='panel-edit-bar';
+      bar.innerHTML='<button class="panel-drag-handle" title="Drag to reorder">⠿</button>'
+        +'<button class="panel-eye-btn" title="Show / Hide" data-pid="'+id+'">👁</button>';
+      el.style.position='relative';
+      el.insertBefore(bar,el.firstChild);
+    });
+  }
+
+  /* ── Enter edit mode ── */
+  window.enterEditMode=function(){
+    closeNav();
+    editActive=true;
+    document.body.classList.add('edit-layout-mode');
+    const hidden=getHidden();
+    PANEL_IDS.forEach(id=>{
+      const el=document.getElementById(id);
+      if(!el) return;
+      el.style.display='';
+      if(hidden.includes(id)){el.classList.add('panel-hidden');el.classList.remove('panel-visible');}
+      else{el.classList.add('panel-visible');el.classList.remove('panel-hidden');}
+      /* update eye icon */
+      const btn=el.querySelector('.panel-eye-btn');
+      if(btn) btn.textContent=hidden.includes(id)?'◻':'👁';
+    });
+    initDragDrop();
+    window.scrollTo({top:0,behavior:'smooth'});
+  };
+
+  /* ── Finish edit mode ── */
+  window.finishEditMode=function(){
+    editActive=false;
+    document.body.classList.remove('edit-layout-mode');
+    const hidden=[];
+    PANEL_IDS.forEach(id=>{
+      const el=document.getElementById(id);
+      if(!el) return;
+      if(el.classList.contains('panel-hidden')){hidden.push(id);el.style.display='none';}
+      else{el.style.display='';}
+      el.classList.remove('panel-hidden','panel-visible','drag-over');
+    });
+    try{localStorage.setItem('dashHidden',JSON.stringify(hidden));}catch(e){}
+    /* Save order */
+    const parent=document.getElementById(PANEL_IDS[0])?.parentNode;
+    if(parent){
+      const order=[...parent.querySelectorAll('.dash-panel')].map(e=>e.id).filter(id=>PANEL_IDS.includes(id));
+      try{localStorage.setItem('dashOrder',JSON.stringify(order));}catch(e){}
+    }
+  };
+
+  function getHidden(){
+    try{return JSON.parse(localStorage.getItem('dashHidden')||'[]');}catch(e){return [];}
+  }
+
+  /* ── Eye toggle clicks ── */
+  document.addEventListener('click',function(e){
+    if(!editActive) return;
+    const btn=e.target.closest('.panel-eye-btn');
+    if(!btn) return;
+    const pid=btn.dataset.pid;
+    const el=document.getElementById(pid);
+    if(!el) return;
+    if(el.classList.contains('panel-hidden')){
+      el.classList.remove('panel-hidden');el.classList.add('panel-visible');btn.textContent='👁';
+    }else{
+      el.classList.remove('panel-visible');el.classList.add('panel-hidden');btn.textContent='◻';
+    }
+  });
+
+  /* ── Drag and drop ── */
+  let dragEl=null;
+  function initDragDrop(){
+    document.querySelectorAll('.panel-drag-handle').forEach(h=>{
+      h.removeEventListener('pointerdown',dragStart);
+      h.addEventListener('pointerdown',dragStart);
+    });
+  }
+  function dragStart(e){
+    if(!editActive) return;
+    e.preventDefault();
+    dragEl=e.target.closest('.dash-panel');
+    if(!dragEl) return;
+    dragEl.style.opacity='.6';
+    document.addEventListener('pointermove',dragMove);
+    document.addEventListener('pointerup',dragEnd);
+  }
+  function dragMove(e){
+    if(!dragEl) return;
+    const els=document.querySelectorAll('.dash-panel');
+    els.forEach(el=>{
+      el.classList.remove('drag-over');
+      const r=el.getBoundingClientRect();
+      if(e.clientY>r.top && e.clientY<r.bottom && el!==dragEl){
+        el.classList.add('drag-over');
+      }
+    });
+  }
+  function dragEnd(e){
+    document.removeEventListener('pointermove',dragMove);
+    document.removeEventListener('pointerup',dragEnd);
+    if(!dragEl) return;
+    dragEl.style.opacity='';
+    const target=document.querySelector('.dash-panel.drag-over');
+    if(target && target!==dragEl){
+      const parent=dragEl.parentNode;
+      const allPanels=[...parent.querySelectorAll('.dash-panel')];
+      const dragIdx=allPanels.indexOf(dragEl);
+      const targetIdx=allPanels.indexOf(target);
+      if(dragIdx<targetIdx) target.after(dragEl);
+      else target.before(dragEl);
+    }
+    document.querySelectorAll('.dash-panel').forEach(el=>el.classList.remove('drag-over'));
+    dragEl=null;
+  }
+
+  /* ── Init on load ── */
+  document.addEventListener('DOMContentLoaded',function(){
+    initPanels();
+    loadLayout();
+  });
+  /* If DOM already loaded */
+  if(document.readyState!=='loading'){initPanels();loadLayout();}
+})();
 </script>
+<button id="editFinishBtn" onclick="finishEditMode()">✓ Finish Layout</button>
+<div id="wsDebugBar" style="position:fixed;bottom:0;left:0;right:0;background:#1a1a2e;color:#0f0;font:11px monospace;padding:4px 8px;z-index:9999;border-top:1px solid #333">WS debug: waiting…</div>
+<script>window._dbgBar=document.getElementById('wsDebugBar');setInterval(()=>{const s=window.sock;window._dbgBar.textContent='WS state:'+(s?['CONNECTING','OPEN','CLOSING','CLOSED'][s.readyState]:'null')+' msgs:'+(window._wsMsgCount||0)+' errs:'+(window._wsParseErr||0);},1000);</script>
 </body></html>

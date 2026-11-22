@@ -44,8 +44,8 @@ ifeq ($(NET),1)
 NET_LINK_SRCS = Core/Src/net_usb.c Core/Src/web_server.c Core/Src/dash.c Core/Src/dash_store.c \
   Core/Src/flash_store.c Core/Src/gvret.c Core/Src/can_dbc.c build/net/dash_page.c build/can_dbc_table.c
 NET_LINK_OBJS = $(NET_OBJS)
-NET_FLAGS = -INet -INet/networking -IUSB/ecm -IUSB -IMiddlewares/ST/STM32_USB_Device_Library/Core/Inc \
-  -IMiddlewares/ST/STM32_USB_Device_Library/Class/CDC_ECM/Inc -IMiddlewares/Third_Party/lwip/src/include \
+NET_FLAGS = -INet -INet/networking -IUSB/rndis -IUSB -IMiddlewares/ST/STM32_USB_Device_Library/Core/Inc \
+  -IMiddlewares/Third_Party/lwip/src/include \
   -IMiddlewares/Third_Party/jsmn -DNET_DASHBOARD=1 -DUSE_HAL_DRIVER
 endif
 ALL_FLAGS = $(ARM_FLAGS) $(NET_FLAGS) $(EXTRA_FLAGS)
@@ -70,14 +70,14 @@ USB_FLAGS = -DUSB_CDC_ENABLED -DUSE_HAL_DRIVER -Wno-error \
   -I$(USB_DIR) -I$(USB_MW)/Core/Inc -I$(USB_MW)/Class/CDC/Inc
 
 # ── Single-board dashboard (ESP32 duties moved to the STM32) ──────────────
-# OTG-FS CDC-ECM network adapter (ST USB Device Library, Class/CDC_ECM, from
-# STM32CubeF4 V1.28.3) + lwIP raw TCP: HTTP 80, WS 81, GVRET TCP 23,
-# observer TCP 2323, DHCP/DNS for the USB host.
+# OTG-FS RNDIS network adapter (custom class on ST USB Device Library core)
+# + lwIP raw TCP: HTTP 80, WS 81, GVRET TCP 23, observer TCP 2323,
+# DHCP/DNS for the USB host. RNDIS works on Android, Linux & Windows.
 LWIP = Middlewares/Third_Party/lwip
 NET_SRCS = \
-  Core/Src/net_usb.c USB/ecm/usbd_conf_ecm.c USB/ecm/usbd_desc_ecm.c \
+  Core/Src/net_usb.c USB/rndis/usbd_conf_rndis.c USB/rndis/usbd_desc_rndis.c \
+  USB/rndis/usbd_rndis.c \
   $(USB_MW)/Core/Src/usbd_core.c $(USB_MW)/Core/Src/usbd_ctlreq.c $(USB_MW)/Core/Src/usbd_ioreq.c \
-  $(USB_MW)/Class/CDC_ECM/Src/usbd_cdc_ecm.c \
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pcd.c \
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_pcd_ex.c \
   Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_ll_usb.c \
@@ -91,7 +91,7 @@ NET_SRCS = \
   $(LWIP)/src/core/ipv4/ip4.c $(LWIP)/src/core/ipv4/ip4_addr.c \
   $(LWIP)/src/core/ipv4/ip4_frag.c $(LWIP)/src/core/ipv4/acd.c \
   $(LWIP)/src/netif/ethernet.c
-NET_INC = -INet -INet/networking -IUSB/ecm -IUSB -I$(USB_MW)/Core/Inc -I$(USB_MW)/Class/CDC_ECM/Inc -I$(LWIP)/src/include -DUSE_HAL_DRIVER
+NET_INC = -INet -INet/networking -IUSB/rndis -IUSB -I$(USB_MW)/Core/Inc -I$(LWIP)/src/include -DUSE_HAL_DRIVER
 # Third-party code is compiled without -Werror (warnings are theirs).
 NET_CFLAGS = $(filter-out -Werror -Wextra,$(ARM_FLAGS)) $(NET_INC) -DNET_DASHBOARD=1
 NET_OBJS = $(patsubst %.c,build/net/%.o,$(filter-out Core/Src/net_usb.c,$(NET_SRCS)))
@@ -100,13 +100,14 @@ build/net/dash_page.c: web/index.html tools/gen_dash_page.py
 	@mkdir -p $(dir $@)
 	$(PYTHON) tools/gen_dash_page.py $< $@
 
-build/net/%.o: %.c Net/lwipopts.h USB/ecm/usbd_conf.h
+build/net/%.o: %.c Net/lwipopts.h USB/rndis/usbd_conf.h
 	@mkdir -p $(dir $@)
 	$(ARM_GCC) $(NET_CFLAGS) -w -c $< -o $@
 
 # All firmware source files
 FIRMWARE_SRCS = \
   Core/Src/main.c \
+  Core/Src/uart_esp.c \
   Core/Src/can_frame_queue.c \
   Core/Src/can_frame_format.c \
   Core/Src/can_signal_profiler.c \
@@ -264,12 +265,12 @@ build/test_dash_store_san: tests/test_dash_store.c tests/fake_flash.c Core/Src/d
 
 build/test_dash_bridge: tests/test_dash_bridge.c tests/fake_flash.c Core/Src/dash.c Core/Src/dash_store.c Core/Src/gvret.c Core/Inc/dash.h Core/Inc/web_server.h Core/Src/can_dbc.c build/can_dbc_table.c
 	mkdir -p build
-	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -O2 -DFS_HOST_TEST -Itests/host_shim -ICore/Inc -IMiddlewares/Third_Party/jsmn tests/test_dash_bridge.c tests/fake_flash.c Core/Src/dash.c Core/Src/dash_store.c Core/Src/device_id.c Core/Src/log_mail.c Core/Src/sig_learn.c Core/Src/ee24.c Core/Src/id_backup.c Core/Src/gvret.c Core/Src/can_frame_queue.c Core/Src/can_dbc.c build/can_dbc_table.c -lm -o $@
+	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -O2 -DFS_HOST_TEST -Itests/host_shim -ICore/Inc -IMiddlewares/Third_Party/jsmn tests/test_dash_bridge.c tests/fake_flash.c Core/Src/dash.c Core/Src/dash_store.c Core/Src/device_id.c Core/Src/log_mail.c Core/Src/sig_learn.c Core/Src/frame_nn.c Core/Src/ee24.c Core/Src/id_backup.c Core/Src/gvret.c Core/Src/can_frame_queue.c Core/Src/can_dbc.c build/can_dbc_table.c -lm -o $@
 
 build/test_dash_bridge_san: tests/test_dash_bridge.c tests/fake_flash.c Core/Src/dash.c Core/Src/dash_store.c Core/Src/gvret.c Core/Inc/dash.h Core/Inc/web_server.h Core/Src/can_dbc.c build/can_dbc_table.c
 	mkdir -p build
 	$(HOST_CC) -std=gnu11 -Wall -Wextra -Werror -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
-	  -DFS_HOST_TEST -Itests/host_shim -ICore/Inc -IMiddlewares/Third_Party/jsmn tests/test_dash_bridge.c tests/fake_flash.c Core/Src/dash.c Core/Src/dash_store.c Core/Src/device_id.c Core/Src/log_mail.c Core/Src/sig_learn.c Core/Src/ee24.c Core/Src/id_backup.c Core/Src/gvret.c Core/Src/can_frame_queue.c Core/Src/can_dbc.c build/can_dbc_table.c -lm -o $@
+	  -DFS_HOST_TEST -Itests/host_shim -ICore/Inc -IMiddlewares/Third_Party/jsmn tests/test_dash_bridge.c tests/fake_flash.c Core/Src/dash.c Core/Src/dash_store.c Core/Src/device_id.c Core/Src/log_mail.c Core/Src/sig_learn.c Core/Src/frame_nn.c Core/Src/ee24.c Core/Src/id_backup.c Core/Src/gvret.c Core/Src/can_frame_queue.c Core/Src/can_dbc.c build/can_dbc_table.c -lm -o $@
 
 build/test_web_server: tests/test_web_server.c Core/Src/web_server.c Core/Inc/web_server.h
 	mkdir -p build
@@ -315,6 +316,12 @@ build/test_id_backup_san: tests/test_id_backup.c Core/Src/ee24.c Core/Src/id_bac
 build/test_sig_learn: tests/test_sig_learn.c Core/Src/sig_learn.c Core/Inc/sig_learn.h Core/Src/can_dbc.c build/can_dbc_table.c
 	mkdir -p build
 	$(HOST_CC) $(HOST_CFLAGS) -DFS_HOST_TEST -ICore/Inc tests/test_sig_learn.c Core/Src/sig_learn.c Core/Src/can_dbc.c build/can_dbc_table.c -lm -o $@
+
+build/test_frame_nn: tests/test_frame_nn.c Core/Src/frame_nn.c Core/Inc/frame_nn.h
+	mkdir -p build
+	$(HOST_CC) $(HOST_CFLAGS) -ICore/Inc tests/test_frame_nn.c Core/Src/frame_nn.c -lm -o $@
+	@# read-only check: the module must reference no CAN transmit symbol
+	$(CC) -c -ICore/Inc Core/Src/frame_nn.c -o build/frame_nn_check.o && ! nm -u build/frame_nn_check.o | grep -i -E 'can_hw|can_tx|HAL_CAN|CAN_Transmit|tx_' 
 
 build/test_sig_learn_san: tests/test_sig_learn.c Core/Src/sig_learn.c Core/Inc/sig_learn.h Core/Src/can_dbc.c build/can_dbc_table.c
 	mkdir -p build
@@ -384,7 +391,7 @@ build/test_ecu_scan_san: tests/test_ecu_scan.c Core/Src/ecu_scan.c Core/Inc/ecu_
 # `make result T=<name>`. Never read the whole result file.
 PYTHON ?= python3
 RECORD = $(PYTHON) tests/testresult.py run
-C_TESTS     = test_id_backup test_sig_learn test_periph_timing test_can_frame_queue test_obd2_decoder test_can_signal_profiler test_isotp_uds test_ecu_scan test_gvret test_gvret_bridge test_usb_tx_queue test_remote_start test_can_filter test_can_opts test_device_id test_log_mail test_gear_led test_dash_store test_dash_bridge test_web_server test_can_dbc
+C_TESTS     = test_id_backup test_sig_learn test_frame_nn test_periph_timing test_can_frame_queue test_obd2_decoder test_can_signal_profiler test_isotp_uds test_ecu_scan test_gvret test_gvret_bridge test_usb_tx_queue test_remote_start test_can_filter test_can_opts test_device_id test_log_mail test_gear_led test_dash_store test_dash_bridge test_web_server test_can_dbc
 SAN_TESTS   = test_id_backup_san test_sig_learn_san test_can_opts_san test_device_id_san test_log_mail_san test_can_frame_queue_san test_obd2_decoder_san test_can_signal_profiler_san test_isotp_uds_san test_ecu_scan_san test_gvret_bridge_san test_usb_tx_queue_san test_gear_led_san test_dash_store_san test_dash_bridge_san test_web_server_san test_can_dbc_san
 
 test-host:

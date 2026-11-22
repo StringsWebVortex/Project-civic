@@ -120,7 +120,7 @@ static bool     stm32FlashRunning;
 /* ══════════════ FRAME TABLE (per-ID latest data + rate, batched) ═══════ */
 #define FRAME_TABLE_MAX 192
 #define FRAME_BATCH_MS  250u
-typedef struct { uint32_t id; uint8_t bus, ext, dlc, dirty, decdirty; char hex[17]; uint32_t total, win; float rate; } FrameEnt;
+typedef struct { uint32_t id; uint8_t bus, ext, dlc, dirty, decdirty; char hex[17]; uint32_t total, win; float rate; char user_label[16]; } FrameEnt;
 static FrameEnt ftab[FRAME_TABLE_MAX];
 static int      ftabN;
 static uint32_t ftabOverflow;                 /* frames whose ID did not fit the table */
@@ -152,7 +152,7 @@ static void frameBatchFlush(void)
         for (int b = 0; b < 2; b++) { busFps[b] = (uint32_t)((float)busWinFrames[b] / s); busBitsPs[b] = (uint32_t)((float)busWinBits[b] / s);
                                       busWinFrames[b] = busWinBits[b] = 0; }
     }
-    if (now - lastBatch < FRAME_BATCH_MS || ws_connected_clients() == 0u) return;
+    if (now - lastBatch < FRAME_BATCH_MS) return;
     lastBatch = now;
     /* Smaller than the ESP32's 12 KB buffer: entries that do not fit stay
      * dirty and go out in the next 250 ms batch, exactly as on the ESP32. */
@@ -165,13 +165,13 @@ static void frameBatchFlush(void)
         (unsigned long)(s_capq[0] ? s_capq[0]->dropped : 0u), (unsigned long)(s_capq[1] ? s_capq[1]->dropped : 0u),
         (unsigned long)ftabOverflow);
     bool first = true;
-    for (int i = 0; i < ftabN && n < (int)sizeof out - 96; i++) {
+    for (int i = 0; i < ftabN && n < (int)sizeof out - 140; i++) {
         FrameEnt *e = &ftab[i];
         if (!e->dirty) continue;
         e->dirty = 0;
-        n += snprintf(out + n, sizeof out - (size_t)n, "%s[\"%0*X\",%u,%u,\"%s\",%u,%.1f]",
+        n += snprintf(out + n, sizeof out - (size_t)n, "%s[\"%0*X\",%u,%u,\"%s\",%u,%.1f,\"%s\"]",
                       first ? "" : ",", e->ext ? 8 : 3, (unsigned)e->id, e->bus, e->dlc, e->hex,
-                      (unsigned)e->total, (double)e->rate);
+                      (unsigned)e->total, (double)e->rate, e->user_label);
         first = false;
     }
     if (n < (int)sizeof out - 3) { out[n++] = ']'; out[n++] = '}'; out[n] = 0; ws_broadcast_txt(out, (size_t)n); }
@@ -185,7 +185,7 @@ static void decBatchFlush(void)
 {
     static uint32_t lastDec; static int cursor;
     const uint32_t now = millis();
-    if (now - lastDec < DEC_BATCH_MS || ws_connected_clients() == 0u) return;
+    if (now - lastDec < DEC_BATCH_MS) return;
     lastDec = now;
     static char out[2048];
     int n = snprintf(out, sizeof out, "{\"type\":\"dec\",\"l\":[");
@@ -370,6 +370,21 @@ static void replayRecord(uint8_t type, uint32_t id, const uint8_t *d, uint16_t l
             memmove(&eventStore[i], &eventStore[i + 1u], sizeof(DtcEvent) * (eventCount - i - 1u));
             eventCount--; break;
         }
+    } else if (type == EV_REC_LABEL && len > 0 && len < 20u) {
+        /* On boot replay: store label in frame table + broadcast to WS clients */
+        char lbuf[20]; uint16_t cp = len < 19u ? len : 19u;
+        memcpy(lbuf, d, cp); lbuf[cp] = '\0';
+        for (int i = 0; i < ftabN; i++) {
+            if (ftab[i].id == id) {
+                uint16_t cp2 = cp < (sizeof(ftab[i].user_label) - 1u) ? cp : (uint16_t)(sizeof(ftab[i].user_label) - 1u);
+                memcpy(ftab[i].user_label, lbuf, cp2);
+                ftab[i].user_label[cp2] = '\0';
+                break;
+            }
+        }
+        char nb[128];
+        int nn = snprintf(nb, sizeof nb, "{\"type\":\"label_update\",\"id\":\"%08X\",\"label\":\"%s\"}", (unsigned)id, lbuf);
+        if (nn > 0 && nn < (int)sizeof nb) ws_broadcast_txt(nb, (size_t)nn);
     }
 }
 
@@ -774,6 +789,8 @@ static err_t gvret_accept(void *arg, struct tcp_pcb *pcb, err_t err)
 }
 
 /* ═══════════════════════════════ LINE PARSER ═══════════════════════════ */
+static void applyLabel(uint32_t frame_id, const char *lbl, uint16_t llen, bool persist);
+static bool isHexStr(const char *v, size_t minLen, size_t maxLen);
 static void diag(const char *raw) { broadcast_type_msg("diag", raw); }
 
 static void diag(const char *raw);
@@ -781,6 +798,17 @@ static void parseLine(const char *raw, int len)
 {
     char f1[24], f2[24], f3[48], f4[48], f5[1100];
     if (len == 0) return;
+    /* LABEL,<ID_hex>,<text> — from ESP UART RX (scope #8) */
+    if (strncmp(raw, "LABEL,", 6) == 0) {
+        char lid[16], ltxt[32];
+        csvField(raw, 1, lid, sizeof lid); upper(lid);
+        csvField(raw, 2, ltxt, sizeof ltxt);
+        if (lid[0] && isHexStr(lid, 1, 8) && ltxt[0]) {
+            uint32_t fid = (uint32_t)strtoul(lid, NULL, 16);
+            applyLabel(fid, ltxt, (uint16_t)strlen(ltxt), true);
+        }
+        return;
+    }
     if (strncmp(raw, "TX,", 3) == 0) { broadcast_type_msg("tx", raw); return; }
     if (strncmp(raw, "GEAR,", 5) == 0) { diag(raw); return; }       /* LED chase acks / broadcast gear */
     if (strncmp(raw, "DEVICE,", 7) == 0) { diag(raw); return; }     /* device detect / target */
@@ -1055,6 +1083,8 @@ void dash_ws_disconnected(uint8_t num)
     if (!any && !stm32FlashRunning) { stm32_print("DISARM,F"); stm32_print("DISARM,B"); }
 }
 
+static void applyLabel(uint32_t frame_id, const char *lbl, uint16_t llen, bool persist);
+
 void dash_ws_text(uint8_t num, char *payload, size_t length)
 {
     if (num >= WS_MAX_CLIENTS || length == 0u || length > WS_MAX_MESSAGE) return;
@@ -1144,6 +1174,16 @@ void dash_ws_text(uint8_t num, char *payload, size_t length)
     }
     if (strcmp(op, "gear_clear") == 0)   { stm32_print("GEAR,CLEAR"); return; }
     if (strcmp(op, "gear_bcast") == 0)   { stm32_print(jbool("on", false) ? "GEARBCAST,ON" : "GEARBCAST,OFF"); return; }
+    if (strcmp(op, "set_label") == 0) {
+        char lid[16], lbl[32];
+        jstr("id", "", lid, sizeof lid); upper(lid);
+        jstr("label", "", lbl, sizeof lbl);
+        if (!isHexStr(lid, 1, 8)) { wsReply(num, "diag", "LABEL,ERR,BAD_ID"); return; }
+        const uint32_t fid = (uint32_t)strtoul(lid, NULL, 16);
+        const uint16_t llen = (uint16_t)strlen(lbl);
+        applyLabel(fid, lbl, llen, true);
+        wsReply(num, "diag", "LABEL,OK"); return;
+    }
     if (strcmp(op, "startcfg") == 0) {
         long to = jint("timeout", 2000), rp = jint("rpm", 400);
         const long ra = jint("armed", 1), rn = jint("neutral", 1), rb = jint("brake", 1), ri = jint("immob", 1);
@@ -1221,6 +1261,26 @@ void dash_ws_text(uint8_t num, char *payload, size_t length)
     stm32_print(buf);
 }
 
+static void applyLabel(uint32_t frame_id, const char *lbl, uint16_t llen, bool persist) {
+    for (int i = 0; i < ftabN; i++) {
+        if (ftab[i].id != frame_id) continue;
+        uint16_t cp = llen < 19u ? llen : 19u;
+        char lbuf[20]; memcpy(lbuf, lbl, cp); lbuf[cp] = '\0';
+        /* store label in frame table entry */
+        {   uint16_t cp2 = llen < (sizeof(ftab[i].user_label) - 1u) ? llen : (uint16_t)(sizeof(ftab[i].user_label) - 1u);
+            memcpy(ftab[i].user_label, lbl, cp2);
+            ftab[i].user_label[cp2] = '\0';
+        }
+        if (persist && logFsOk)
+            (void)evst_append(EV_REC_LABEL, frame_id, (const uint8_t *)lbuf, (uint16_t)(cp + 1u));
+        char nb[128];
+        int nn = snprintf(nb, sizeof nb, "{\"type\":\"label_update\",\"id\":\"%0*X\",\"label\":\"%s\"}",
+                          ftab[i].ext ? 8 : 3, (unsigned)frame_id, lbuf);
+        if (nn > 0 && nn < (int)sizeof nb) ws_broadcast_txt(nb, (size_t)nn);
+        return;
+    }
+}
+
 /* ═══════════════════════════════ HTTP routes ═══════════════════════════ */
 extern const uint8_t dash_page_gz[];
 extern const size_t  dash_page_gz_len;
@@ -1258,8 +1318,36 @@ static size_t snapGen(void *ctx, uint8_t *dst, size_t cap)
 static bool is_get(const http_req_t *r) { return strcmp(r->method, "GET") == 0; }
 static bool is_post(const http_req_t *r) { return strcmp(r->method, "POST") == 0; }
 
+/* Captive portal: Android, iOS, Windows connectivity-check URLs.
+ * When we detect one, return a 302 redirect to the dashboard. This makes
+ * Android/iOS show "Sign in to network" which opens our dashboard. */
+static bool is_captive_check(const http_req_t *r)
+{
+    if (strcmp(r->method, "GET") != 0) return false;
+    /* Android */
+    if (strcmp(r->path, "/generate_204") == 0) return true;
+    if (strcmp(r->path, "/gen_204") == 0) return true;
+    if (strcmp(r->path, "/connectivitycheck") == 0) return true;
+    /* iOS / macOS */
+    if (strcmp(r->path, "/hotspot-detect.html") == 0) return true;
+    if (strcmp(r->path, "/library/test/success.html") == 0) return true;
+    /* Windows NCSI */
+    if (strcmp(r->path, "/ncsi.txt") == 0) return true;
+    if (strcmp(r->path, "/connecttest.txt") == 0) return true;
+    /* Firefox */
+    if (strcmp(r->path, "/success.txt") == 0) return true;
+    return false;
+}
+
 void dash_http_request(http_conn_t *c, const http_req_t *r)
 {
+    /* Captive portal redirect: forces the host to show sign-in browser */
+    if (is_captive_check(r)) {
+        http_respond(c, 302, "text/html",
+            "Location: http://192.168.7.1/\r\nCache-Control: no-store\r\n",
+            "<html><body>Redirecting...</body></html>", 39);
+        return;
+    }
     if (is_get(r) && strcmp(r->path, "/") == 0) {
         http_respond(c, 200, "text/html", "Content-Encoding: gzip\r\n", dash_page_gz, dash_page_gz_len); return;
     }

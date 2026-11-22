@@ -11,3 +11,5 @@ firmware/tests/results/
 firmware/node_modules/
 .scratch/
 docs/*.pdf
+esp32_bridge/.pio/
+esp32_bridge/data/index.html.gz
