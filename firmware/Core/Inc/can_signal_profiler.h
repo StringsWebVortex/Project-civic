@@ -58,12 +58,23 @@ typedef struct {
     /* Adaptive bitrate dwell: fastest observed inter-frame interval across
      * all IDs, used to tune scan dwell time in main.c */
     uint32_t         min_interval_ms;
+    /* Emit cycle position: a cycle is spread over several calls when the
+     * output has no room, so no ID is starved and frames keep flowing. */
+    uint8_t          emit_active;    /* 1 = cycle in progress            */
+    uint32_t         emit_idx;       /* entry being written              */
+    int8_t           emit_part;      /* -1 = PROFILE line, 0..7 = SIG    */
+    uint8_t          bus;            /* source bus tag (0=CAN1,1=CAN2),
+                                        appended as the last CSV field    */
 } can_profiler_t;
 
 /* Emit interval: send PROFILE + SIG lines every this many ms */
 #define PROFILER_EMIT_INTERVAL_MS 2000u
 
 void can_profiler_init(can_profiler_t *p);
+
+/* Tag this profiler's PROFILE/SIG output lines with a source-bus number
+ * (appended as the final CSV field). Call after can_profiler_init(). */
+void can_profiler_set_bus(can_profiler_t *p, uint8_t bus);
 
 /*
  * can_profiler_update() — feed one dequeued frame into the profiler.
@@ -72,12 +83,15 @@ void can_profiler_init(can_profiler_t *p);
 void can_profiler_update(can_profiler_t *p, const can_capture_frame_t *frame);
 
 /*
- * can_profiler_emit() — if PROFILER_EMIT_INTERVAL_MS has elapsed since last
- * emit, write PROFILE and SIG lines via write_fn callback.
- * write_fn is called with each complete \r\n-terminated line.
+ * can_profiler_emit() — every PROFILER_EMIT_INTERVAL_MS starts a cycle that
+ * writes one PROFILE line per ID and one SIG line per variable byte via
+ * write_fn (each line complete and \r\n-terminated). write_fn returns false
+ * when the output has no room for the line: the cycle stops there and the
+ * next call resumes with that same line, so a burst larger than the UART
+ * ring never drops the later IDs. Call it every main-loop pass.
  */
 void can_profiler_emit(can_profiler_t *p, uint32_t now_ms,
-                       void (*write_fn)(const char *line));
+                       bool (*write_fn)(const char *line));
 
 /*
  * can_profiler_min_interval_ms() — returns the fastest observed inter-frame

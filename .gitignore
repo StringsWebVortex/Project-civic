@@ -1,9 +1,15 @@
 firmware/build/
 firmware/esp32-dashboard/.pio/
-firmware/esp32-gateway/.pio/
 firmware/tools/__pycache__/
 firmware/tests/__pycache__/
 *.o
 *.map
 backups/
 .vscode/
+docs/reference/*.pdf
+firmware/tests/results/
+firmware/node_modules/
+.scratch/
+docs/*.pdf
+esp32_bridge/.pio/
+esp32_bridge/data/index.html.gz

@@ -2,10 +2,10 @@
 #define CAN_FRAME_QUEUE_H
 #include <stdbool.h>
 #include <stdint.h>
-#define CAN_CAPTURE_QUEUE_CAPACITY 2048u
+#define CAN_CAPTURE_QUEUE_CAPACITY 860u   /* 28-byte frames, 2 queues in 64 KB CCM (+ ECM TX buffer) */
 #define CAN_CAPTURE_MAX_DLC 8u
-typedef struct { uint32_t timestamp_ms; uint32_t timestamp_us; uint32_t identifier; uint8_t extended; uint8_t remote; uint8_t dlc; uint8_t data[CAN_CAPTURE_MAX_DLC]; } can_capture_frame_t;
-typedef struct { can_capture_frame_t frames[CAN_CAPTURE_QUEUE_CAPACITY]; volatile uint16_t head; volatile uint16_t tail; volatile uint32_t dropped; } can_capture_queue_t;
+typedef struct { uint32_t timestamp_ms; uint32_t timestamp_us; uint32_t identifier; uint8_t extended; uint8_t remote; uint8_t dlc; uint8_t bus; uint8_t fifo; uint16_t hw_time; uint8_t data[CAN_CAPTURE_MAX_DLC]; } can_capture_frame_t;
+typedef struct { can_capture_frame_t frames[CAN_CAPTURE_QUEUE_CAPACITY]; volatile uint16_t head; volatile uint16_t tail; volatile uint32_t dropped; volatile uint32_t rejected; } can_capture_queue_t;
 void can_capture_queue_init(can_capture_queue_t *q);
 bool can_capture_queue_push_isr(can_capture_queue_t *q, const can_capture_frame_t *frame);
 bool can_capture_queue_pop(can_capture_queue_t *q, can_capture_frame_t *out);

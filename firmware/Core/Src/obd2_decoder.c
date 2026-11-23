@@ -6,7 +6,10 @@
  * OBD-II Mode 01 positive response decoder (ISO 15765-4).
  *
  * Single-frame layout:
- *   data[0] = ISO-TP PCI length byte  (not validated here)
+ *   data[0] = ISO-TP single-frame PCI: high nibble 0, low nibble = number of
+ *             bytes that follow (mode + PID + data). Validated: first/
+ *             consecutive/flow-control frames and bytes past the SF length
+ *             (padding) are never decoded as values.
  *   data[1] = 0x41                    (Mode 01 positive response)
  *   data[2] = PID
  *   data[3] = A byte
@@ -19,15 +22,22 @@
  * Output: "PID,<HEX>,<label>,<unit>,<value>\r\n"
  * IDs are emitted without "0x" prefix to match the CSV and profiler format.
  *
+ * Scalings were checked against python-OBD (github.com/brendan-w/python-OBD,
+ * obd/commands.py, decoders.py, UnitsAndScaling.py) in audit loop 4; SAE
+ * J1979 itself is not public. Two deliberate differences: PID 0x32 is read
+ * as one signed 16-bit value (python-OBD sign-extends A and B separately),
+ * and PIDs 0x24-0x2B give the equivalence ratio from A,B (the 2/65536
+ * scaling python-OBD uses for 0x44) where python-OBD reports the C,D voltage.
+ *
  * Sensors covered:
- *   Engine: RPM, load, coolant, intake manifold pressure, MAF, MAF-B,
+ *   Engine: RPM, load, coolant, intake manifold pressure, MAF,
  *           intake air temp, ambient air temp, oil temp, engine runtime,
  *           throttle (absolute + relative + commanded), ignition timing advance
  *   Fuel:   fuel system status, short/long-term trim bank 1/2,
  *           fuel pressure (gauge+rail+rail-absolute), fuel level,
  *           evap purge, evap system vapour pressure, warm-ups, distance
  *   O2:     O2 sensors present, O2 voltage+trim (banks 1-2 sensors 1-4),
- *           wide-band lambda+voltage (PID 0x24-0x2B)
+ *           wide-band equivalence ratio (PID 0x24-0x2B)
  *   Exhaust/emissions: EGR command + error, catalyst temp banks 1-2 sensors 1-2,
  *                      secondary air status, barometric pressure
  *   Speed:  vehicle speed
@@ -36,20 +46,36 @@
  *           time since codes cleared, OBD standard, commanded equiv ratio
  */
 
+/* Data bytes after mode + PID that the case for this PID below reads. */
+static uint8_t obd2_bytes_read(uint8_t pid)
+{
+    switch (pid) {
+    case 0x03u: case 0x0Cu: case 0x10u: case 0x1Fu: case 0x21u: case 0x22u:
+    case 0x23u: case 0x24u: case 0x25u: case 0x26u: case 0x27u: case 0x28u:
+    case 0x29u: case 0x2Au: case 0x2Bu: case 0x31u: case 0x32u: case 0x3Cu:
+    case 0x3Du: case 0x3Eu: case 0x3Fu: case 0x42u: case 0x43u: case 0x44u:
+    case 0x4Du: case 0x4Eu: case 0x5Eu:
+        return 2u;                                /* reads A and B */
+    default:
+        return 1u;                                /* reads A */
+    }
+}
+
 bool obd2_decode(const can_capture_frame_t *frame, char *out_line, size_t capacity)
 {
     if (!frame || !out_line || capacity < OBD2_LINE_CAPACITY) return false;
     if (frame->extended || frame->remote) return false;
     if (frame->identifier != 0x7E8u) return false;
-    if (frame->dlc < 4u) return false;
+    if (frame->dlc < 4u || frame->dlc > 8u) return false;
+    const uint8_t sf_len = frame->data[0];
+    if ((sf_len & 0xF0u) != 0u) return false;               /* not a single frame */
+    if (sf_len < 3u || sf_len > (uint8_t)(frame->dlc - 1u)) return false;
     if (frame->data[1] != 0x41u) return false;
 
     const uint8_t pid = frame->data[2];
+    if ((uint8_t)(sf_len - 2u) < obd2_bytes_read(pid)) return false;   /* short */
     const uint8_t A   = frame->data[3];
     const uint8_t B   = (frame->dlc >= 5u) ? frame->data[4] : 0u;
-    const uint8_t C   = (frame->dlc >= 6u) ? frame->data[5] : 0u;
-    const uint8_t D   = (frame->dlc >= 7u) ? frame->data[6] : 0u;
-    (void)D; /* suppress unused-variable warning for PIDs that don't use D */
 
     const char *label = NULL;
     const char *unit  = "";
@@ -363,15 +389,11 @@ bool obd2_decode(const can_capture_frame_t *frame, char *out_line, size_t capaci
         val = ((float)A * 256.0f + (float)B) * 0.05f;
         (void)snprintf(vs, sizeof vs, "%.2f", (double)val); break;
 
-    /* ── PIDs 0x66/0x67  MAF sensor B ──────────────────────────────── */
-    case 0x66u:
-        label = "MAF B"; unit = "gs";
-        val = ((float)B * 256.0f + (float)C) / 32.0f;
-        (void)snprintf(vs, sizeof vs, "%.2f", (double)val); break;
-    case 0x67u:
-        label = "Engine Coolant Temp 2"; unit = "C";
-        val = (float)B - 40.0f;
-        (void)snprintf(vs, sizeof vs, "%.0f", (double)val); break;
+    /* PIDs 0x66 (MAF sensor) and 0x67 (coolant sensors) are not decoded:
+     * their multi-sensor byte layout is not in any verified source (SAE
+     * J1979 is not public; python-OBD, the reference used for the scalings
+     * above, defines PIDs only up to 0x5F). The raw 0x7E8 frame is still
+     * streamed, and the dashboard's live PID table shows such PIDs as hex. */
 
     default:
         return false; /* PID not decoded — not a bug */
