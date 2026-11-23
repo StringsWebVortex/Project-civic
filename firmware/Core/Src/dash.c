@@ -1351,6 +1351,13 @@ void dash_http_request(http_conn_t *c, const http_req_t *r)
     if (is_get(r) && strcmp(r->path, "/") == 0) {
         http_respond(c, 200, "text/html", "Content-Encoding: gzip\r\n", dash_page_gz, dash_page_gz_len); return;
     }
+    /* captive portal — Android/Windows/Linux/iOS auto-open browser on connect */
+    if (is_get(r) && (strcmp(r->path, "/generate_204") == 0 ||
+                      strcmp(r->path, "/ncsi.txt") == 0 ||
+                      strcmp(r->path, "/connecttest.txt") == 0 ||
+                      strcmp(r->path, "/hotspot-detect.html") == 0)) {
+        http_respond(c, 302, "text/plain", "Location: http://192.168.7.1/\r\n", "", 0); return;
+    }
     if (is_get(r) && strcmp(r->path, "/token") == 0) {
         http_respond(c, 200, "text/plain", "Cache-Control: no-store\r\n", wsToken, strlen(wsToken)); return;
     }

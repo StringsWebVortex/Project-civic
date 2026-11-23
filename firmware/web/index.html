@@ -142,6 +142,7 @@ body.edit-layout-mode #editFinishBtn{display:block}
   <a href="#top" class="active">⌂ Dashboard</a>
   <a href="#events">⚑ Fault Events</a>
   <a href="#canAnalyzer">⌁ CAN Analyzer</a>
+  <a href="#canAI">✦ CAN AI Monitor</a>
   <a href="#signalExplorer">◫ Signal Explorer</a>
   <div class="nav-label">Diagnostics</div>
   <a href="#controllers">▤ Controllers &amp; Bus</a>
@@ -154,7 +155,6 @@ body.edit-layout-mode #editFinishBtn{display:block}
   <div class="nav-label">Data &amp; Tools</div>
   <a href="/log.csv">↓ Download Current Data</a>
   <a href="/log.csv?historical=1">◷ Historical Data (CSV)</a>
-  <a href="#fwCard">↻ Firmware Update</a>
   <div class="nav-spacer"></div>
   <a href="javascript:void(0)" onclick="enterEditMode()" style="color:#58a6ff;font-weight:700">✎ Edit Dash Layout</a>
   <a href="#top">↑ Back to Dashboard Top</a>
@@ -235,6 +235,24 @@ body.edit-layout-mode #editFinishBtn{display:block}
 </div>
 
 <!-- ══ Labelled state capture: SavvyCAN "Discrete State" method ══ -->
+<div class="card full" id="canAI">
+  <div class="card-head"><span class="card-title">CAN AI · On-device CAN Transformer</span><span class="live-badge off" id="aiState">NO MODEL</span></div>
+  <div style="font-size:.7rem;color:#8b949e;margin:4px 0 10px">Runs locally in iPhone Safari. A compact self-attention encoder reads 8-frame CAN sequences and learns next-frame prediction on this iPhone. It models cross-frame context rather than scoring isolated IDs. Read-only: it never transmits CAN commands. Learned prediction weights are stored in this browser on this device.</div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:9px">
+    <button class="btn btn-sm" id="aiTrainBtn" type="button" onclick="canAIStartTraining()">Train Transformer</button>
+    <button class="btn btn-sm" id="aiFinishBtn" type="button" onclick="canAIFinishTraining()" disabled>Finish training · Predict</button>
+    <button class="btn btn-sm" id="aiClearBtn" type="button" onclick="canAIClearModel()">Clear model</button>
+    <span id="aiSamples" style="font-size:.68rem;color:#8b949e">0 samples</span>
+  </div>
+  <div id="aiSummary" style="font-size:.72rem;color:#8b949e;margin-bottom:8px">Connect the STM32 over its USB network link, then train the Transformer on normal vehicle operation.</div>
+  <div id="aiTransformer" style="font-size:.68rem;color:#8b949e;margin:0 0 8px">Transformer not trained · waiting for CAN sequences</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px">
+    <div style="border:1px solid #30363d;border-radius:6px;padding:9px"><div style="font-size:.7rem;font-weight:700;margin-bottom:5px">Model profile</div><div id="aiProfile" style="font-size:.68rem;color:#8b949e">No baseline loaded</div></div>
+    <div style="border:1px solid #30363d;border-radius:6px;padding:9px"><div style="font-size:.7rem;font-weight:700;margin-bottom:5px">Recent anomalies</div><div id="aiAnomalyCount" style="font-size:1.35rem;font-weight:700">0</div><div style="font-size:.65rem;color:#8b949e">Sequence prediction errors against learned normal driving patterns</div></div>
+  </div>
+  <div style="max-height:240px;overflow:auto;margin-top:9px"><table style="width:100%;font-size:.68rem;border-collapse:collapse"><thead><tr style="text-align:left;color:#8b949e"><th>Time</th><th>Bus</th><th>CAN ID</th><th>Score</th><th>Signal</th></tr></thead><tbody id="aiAnomalyRows"><tr><td colspan="5" style="color:#8b949e">No anomalies recorded.</td></tr></tbody></table></div>
+</div>
+
 <div class="card full" id="stateCapture">
   <div class="card-head"><span class="card-title">State Capture &amp; Bit Finder</span><span class="live-badge off" id="capState">IDLE</span></div>
   <div style="font-size:.68rem;color:#8b949e;margin-bottom:6px">Reverse-engineering aid (SavvyCAN Discrete-State method): put a control into one state (e.g. shift lever P), type the label, press Record; repeat for each state (R, N, D…). <b>Find bits</b> lists every CAN bit that stays constant inside each label but differs between labels. Uses the live frame table only (listen-only, no ARM). <b>Export CSV</b> saves the labelled samples as normal-operation baselines (cold start, idle, cruise…) for later analysis / ST Edge AI training.</div>
@@ -1164,7 +1182,7 @@ const ecus={};          // rx id → {tx,rx,fmt,reply,info:{}}
 let idq=[], idCur=null, idTimer=null;
 const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let busFps=[0,0], busBps=[0,0], bcPedal=null, veh={state:'OFF'};
-/* Bus health for the selected bus only. Rates/bits are counted on the ESP32
+/* Bus health for the selected bus only. Rates/bits are counted by the STM32
    from every received frame (not from the profiler), so load is real. */
 function updBus(){
   const b=curBus==='B'?1:0;
@@ -1681,6 +1699,196 @@ function onEcu(t){
   diagLog(t);
 }
 
+/* ── local CAN sequence model (browser-side, read-only) ── */
+const canTransformer = { mode:'idle', window:[], samples:0, head:null, bias:null, errorN:0, errorMean:0, errorM2:0, forecasts:0, anomalies:0, lastError:0 };
+const CAN_TRANSFORMER_KEY = 'civic.can-transformer.v1';
+const CT_INPUTS = 12, CT_WIDTH = 8, CT_CONTEXT = 8;
+function ctMatrix(rows,cols,seed,scale){
+  const a=[]; for(let r=0;r<rows;r++){const row=[];for(let c=0;c<cols;c++){const x=Math.sin((r+1)*12.9898+(c+1)*78.233+seed*37.719)*43758.5453;row.push(((x-Math.floor(x))*2-1)*scale);}a.push(row);}return a;
+}
+let ctWq,ctWk,ctWv,ctW1,ctW2;
+function ctResetEncoder(){
+  ctWq=ctMatrix(CT_INPUTS,CT_WIDTH,1,0.22);ctWk=ctMatrix(CT_INPUTS,CT_WIDTH,2,0.22);ctWv=ctMatrix(CT_INPUTS,CT_WIDTH,3,0.22);
+  ctW1=ctMatrix(CT_WIDTH,12,4,0.18);ctW2=ctMatrix(12,CT_WIDTH,5,0.16);
+}
+ctResetEncoder();
+function ctVector(f){
+  const id=parseInt(f.id,16), idScale=id>0x7FF?0x1FFFFFFF:0x7FF;
+  return [f.bus, id/idScale, f.dlc/8, Math.min(1,f.features[0]/100),
+    ...f.features.slice(1).map(v=>v===null?0:v/255)];
+}
+function ctForward(sequence){
+  const tokens=sequence.slice(-CT_CONTEXT).map((x,pos)=>x.map((v,i)=>v+0.025*Math.sin((pos+1)*(i+1))));
+  const project=(x,w)=>w[0].map((_,j)=>x.reduce((s,v,i)=>s+v*w[i][j],0));
+  const q=project(tokens[tokens.length-1],ctWq), keys=tokens.map(t=>project(t,ctWk)), values=tokens.map(t=>project(t,ctWv));
+  const logits=keys.map(k=>k.reduce((s,v,i)=>s+v*q[i],0)/Math.sqrt(CT_WIDTH));
+  const peak=Math.max(...logits), exps=logits.map(x=>Math.exp(x-peak)), den=exps.reduce((a,b)=>a+b,0)||1, attention=exps.map(x=>x/den);
+  const attended=Array(CT_WIDTH).fill(0);
+  values.forEach((v,i)=>v.forEach((x,j)=>attended[j]+=x*attention[i]));
+  const residual=attended.map((v,i)=>Math.tanh(v+values[values.length-1][i]));
+  const hidden=ctW1[0].map((_,j)=>Math.tanh(residual.reduce((s,v,i)=>s+v*ctW1[i][j],0)));
+  const ff=ctW2[0].map((_,j)=>Math.tanh(hidden.reduce((s,v,i)=>s+v*ctW2[i][j],0)));
+  const z=residual.map((v,i)=>Math.tanh(v+ff[i]));
+  return {tokens,q,keys,values,attention,residual,hidden,ff,z};
+}
+function ctEncode(sequence){return ctForward(sequence).z;}
+function ctPredict(context){
+  const cache=ctForward(context), z=cache.z;
+  return {z,cache,y:Array.from({length:CT_INPUTS},(_,j)=>canTransformer.bias[j]+z.reduce((s,v,i)=>s+v*canTransformer.head[i][j],0))};
+}
+function ctUpdateHead(prediction,target){
+  const p=prediction, c=p.cache, lr=0.5/CT_WIDTH, gradClip=x=>Math.max(-1,Math.min(1,x));
+  const dZ=Array(CT_WIDTH).fill(0);
+  for(let j=0;j<CT_INPUTS;j++){
+    const e=(p.y[j]-target[j])*2/CT_INPUTS;canTransformer.bias[j]-=lr*e;
+    for(let i=0;i<CT_WIDTH;i++){dZ[i]+=e*canTransformer.head[i][j];canTransformer.head[i][j]-=lr*e*p.z[i];}
+  }
+  const dFF=c.ff.map((v,i)=>dZ[i]*(1-v*v));
+  const dHidden=Array(12).fill(0);
+  for(let i=0;i<12;i++)for(let j=0;j<CT_WIDTH;j++){dHidden[i]+=dFF[j]*ctW2[i][j];ctW2[i][j]-=0.001*gradClip(c.hidden[i]*dFF[j]);}
+  const dPreHidden=dHidden.map((v,i)=>v*(1-c.hidden[i]*c.hidden[i]));
+  const dResidual=Array(CT_WIDTH).fill(0);
+  for(let i=0;i<CT_WIDTH;i++)for(let j=0;j<12;j++){dResidual[i]+=dPreHidden[j]*ctW1[i][j];ctW1[i][j]-=0.001*gradClip(c.residual[i]*dPreHidden[j]);}
+  for(let i=0;i<CT_WIDTH;i++)dResidual[i]=(dZ[i]+dResidual[i])*(1-c.z[i]*c.z[i]);
+  const dAttention=c.values.map(v=>v.reduce((s,x,i)=>s+x*dResidual[i],0));
+  const weighted=dAttention.reduce((s,v,i)=>s+v*c.attention[i],0);
+  const dLogits=dAttention.map((v,i)=>c.attention[i]*(v-weighted));
+  const dQ=Array(CT_WIDTH).fill(0), dKeys=c.keys.map(()=>Array(CT_WIDTH).fill(0));
+  for(let t=0;t<c.tokens.length;t++)for(let j=0;j<CT_WIDTH;j++){dQ[j]+=dLogits[t]*c.keys[t][j]/Math.sqrt(CT_WIDTH);dKeys[t][j]=dLogits[t]*c.q[j]/Math.sqrt(CT_WIDTH);}
+  const dValues=c.values.map((v,t)=>v.map((_,j)=>c.attention[t]*dResidual[j]+(t===c.values.length-1?dResidual[j]:0)));
+  const last=c.tokens.length-1;
+  for(let i=0;i<CT_INPUTS;i++)for(let j=0;j<CT_WIDTH;j++){
+    ctWq[i][j]-=0.001*gradClip(c.tokens[last][i]*dQ[j]);
+    let gk=0,gv=0;for(let t=0;t<c.tokens.length;t++){gk+=c.tokens[t][i]*dKeys[t][j];gv+=c.tokens[t][i]*dValues[t][j];}
+    ctWk[i][j]-=0.001*gradClip(gk);ctWv[i][j]-=0.001*gradClip(gv);
+  }
+}
+function ctObserve(f){
+  const current=ctVector(f), history=canTransformer.window.slice(-CT_CONTEXT);
+  if(history.length>=2 && canTransformer.head){
+    const p=ctPredict(history), err=p.y.reduce((s,v,i)=>s+(v-current[i])**2,0)/CT_INPUTS, score=Math.sqrt(err);
+    canTransformer.lastError=score;canTransformer.forecasts++;
+    if(canTransformer.mode==='training'){
+      if(canTransformer.samples>=32){const n=++canTransformer.errorN, d=score-canTransformer.errorMean;canTransformer.errorMean+=d/n;canTransformer.errorM2+=d*(score-canTransformer.errorMean);}
+      ctUpdateHead(p,current);canTransformer.samples++;
+    }else if(canTransformer.mode==='monitor'){
+      const sd=canTransformer.errorN>1?Math.sqrt(canTransformer.errorM2/(canTransformer.errorN-1)):0;
+      const threshold=Math.max(0.08,canTransformer.errorMean+3*sd);
+      if(score>threshold){canTransformer.anomalies++;canAI.total++;canAI.anomalies.unshift({time:new Date().toLocaleTimeString(),bus:f.bus===0?'F-CAN':'B-CAN',id:f.id,score:score/Math.max(threshold,0.01),feature:'sequence forecast'});if(canAI.anomalies.length>20)canAI.anomalies.pop();}
+    }
+  }
+  canTransformer.window.push(current);if(canTransformer.window.length>CT_CONTEXT)canTransformer.window.shift();
+}
+function canTransformerStart(){
+  canTransformer.mode='training';canTransformer.window=[];canTransformer.samples=0;canTransformer.errorN=0;canTransformer.errorMean=0;canTransformer.errorM2=0;canTransformer.forecasts=0;canTransformer.anomalies=0;canTransformer.lastError=0;
+  ctResetEncoder();canTransformer.head=ctMatrix(CT_WIDTH,CT_INPUTS,19,0.015);canTransformer.bias=Array(CT_INPUTS).fill(0.5);
+  try{localStorage.removeItem(CAN_TRANSFORMER_KEY);}catch(_){}
+}
+function canTransformerFinish(){
+  if(canTransformer.mode!=='training'||canTransformer.samples<128)return false;
+  canTransformer.mode='monitor';canTransformerSave();return true;
+}
+function canTransformerSave(){
+  try{localStorage.setItem(CAN_TRANSFORMER_KEY,JSON.stringify({version:1,head:canTransformer.head,bias:canTransformer.bias,encoder:{q:ctWq,k:ctWk,v:ctWv,w1:ctW1,w2:ctW2},errorN:canTransformer.errorN,errorMean:canTransformer.errorMean,errorM2:canTransformer.errorM2,samples:canTransformer.samples}));return true;}catch(_){return false;}
+}
+function ctValidMatrix(m,rows,cols){return Array.isArray(m)&&m.length===rows&&m.every(r=>Array.isArray(r)&&r.length===cols&&r.every(Number.isFinite));}
+function canTransformerLoad(){
+  try{
+    const x=JSON.parse(localStorage.getItem(CAN_TRANSFORMER_KEY)||'null'),e=x&&x.encoder;
+    if(!x||x.version!==1||!ctValidMatrix(x.head,CT_WIDTH,CT_INPUTS)||!Array.isArray(x.bias)||x.bias.length!==CT_INPUTS||x.bias.some(v=>!Number.isFinite(v))||
+      !e||!ctValidMatrix(e.q,CT_INPUTS,CT_WIDTH)||!ctValidMatrix(e.k,CT_INPUTS,CT_WIDTH)||!ctValidMatrix(e.v,CT_INPUTS,CT_WIDTH)||!ctValidMatrix(e.w1,CT_WIDTH,12)||!ctValidMatrix(e.w2,12,CT_WIDTH)||
+      !Number.isInteger(x.errorN)||x.errorN<0||![x.errorMean,x.errorM2].every(Number.isFinite)||x.errorM2<0)return false;
+    canTransformer.head=x.head;canTransformer.bias=x.bias;ctWq=e.q;ctWk=e.k;ctWv=e.v;ctW1=e.w1;ctW2=e.w2;
+    canTransformer.errorN=x.errorN;canTransformer.errorMean=x.errorMean;canTransformer.errorM2=x.errorM2;canTransformer.samples=Number.isInteger(x.samples)&&x.samples>=0?x.samples:0;
+    canTransformer.mode='monitor';canAI.mode='monitor';return true;
+  }catch(_){return false;}
+}
+function canTransformerClear(){canTransformer.mode='idle';canTransformer.window=[];canTransformer.samples=0;canTransformer.head=null;canTransformer.bias=null;canTransformer.errorN=0;canTransformer.errorMean=0;canTransformer.errorM2=0;canTransformer.forecasts=0;canTransformer.anomalies=0;canTransformer.lastError=0;try{localStorage.removeItem(CAN_TRANSFORMER_KEY);}catch(_){}}
+function canTransformerRender(){
+  const e=$('aiTransformer');if(!e)return;
+  e.textContent='Transformer encoder · 1 attention head · 8-frame context · '+canTransformer.samples+' training sequences · '+canTransformer.forecasts+' forecasts · last prediction error '+canTransformer.lastError.toFixed(3);
+}
+
+const canAI = { mode:'idle', model:Object.create(null), samples:0, anomalies:[], total:0 };
+const CAN_AI_KEY = 'civic.can-ai.baseline.v1';
+function canAIFeatures(r){
+  if(!Array.isArray(r)||r.length<4) return null;
+  const id=String(r[0]??'').toUpperCase();
+  const bus=Number(r[1]), dlc=Number(r[2]), hex=String(r[3]??'').replace(/[^0-9a-f]/gi,'');
+  const rate=Number(r[5]);
+  if(!/^[0-9A-F]{1,8}$/.test(id)||!(bus===0||bus===1)||!Number.isInteger(dlc)||dlc<0||dlc>8||!Number.isFinite(rate)||rate<0||hex.length<dlc*2) return null;
+  const f=[rate];
+  for(let i=0;i<8;i++) f.push(i<dlc?parseInt(hex.slice(i*2,i*2+2),16):null);
+  return {key:(bus===0?'F':'B')+':'+id,bus,id,dlc,features:f};
+}
+function canAIUpdateRow(model,features){
+  model.n++;
+  for(let i=0;i<features.length;i++){
+    const v=features[i]; if(v===null||!Number.isFinite(v)) continue;
+    const n=++model.count[i], d=v-model.mean[i]; model.mean[i]+=d/n; model.m2[i]+=d*(v-model.mean[i]);
+  }
+}
+function canAIScoreRow(model,features){
+  if(!model||model.n<10) return 0;
+  let score=0;
+  for(let i=0;i<features.length;i++){
+    const v=features[i], n=model.count[i]; if(v===null||!Number.isFinite(v)||n<10) continue;
+    const variance=n>1?model.m2[i]/(n-1):0;
+    const floor=i===0?0.04:1.0;
+    score=Math.max(score,Math.abs(v-model.mean[i])/Math.sqrt(Math.max(variance,floor)));
+  }
+  return score;
+}
+function canAIRender(){
+  const state=$('aiState'), samples=$('aiSamples'), summary=$('aiSummary'), profile=$('aiProfile');
+  if(!state||!samples||!summary||!profile) return;
+  const ids=Object.keys(canAI.model), ready=ids.filter(k=>canAI.model[k].n>=10).length;
+  const training=canTransformer.mode==='training', active=canTransformer.mode==='monitor';
+  state.textContent=training?'TRAINING TRANSFORMER':active?'TRANSFORMER ACTIVE':'NO MODEL';
+  state.className='live-badge '+(active?'on':training?'warn':'off');
+  samples.textContent=canTransformer.samples+' sequence samples';
+  summary.textContent=training?'Training the sequence predictor on live CAN traffic. Keep the vehicle in known-good condition and capture varied normal operating states.':active?'Forecasting the next CAN feature vector from recent multi-frame context. Forecast errors are investigation candidates, not confirmed faults.':'Connect the STM32 and train the Transformer using normal vehicle operation.';
+  profile.textContent='8-frame self-attention context · 12 CAN features (bus, ID, DLC, rate, payload) · '+ready+' CAN-ID reference profiles';
+  $('aiAnomalyCount').textContent=String(canTransformer.anomalies);
+  $('aiTrainBtn').disabled=training;
+  $('aiFinishBtn').disabled=!training||!Object.values(canAI.model).some(m=>m.n>=10)||canTransformer.samples<128;
+  const body=$('aiAnomalyRows'); body.textContent='';
+  if(!canAI.anomalies.length){const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=5;td.textContent='No sequence forecast deviations recorded.';td.style.color='#8b949e';tr.appendChild(td);body.appendChild(tr);return;}
+  for(const a of canAI.anomalies){const tr=document.createElement('tr');for(const v of [a.time,a.bus,a.id,a.score.toFixed(1),a.feature]){const td=document.createElement('td');td.textContent=String(v);td.style.padding='4px';tr.appendChild(td);}body.appendChild(tr);}
+}
+function canAISaveModel(){
+  try{localStorage.setItem(CAN_AI_KEY,JSON.stringify({version:1,model:canAI.model,samples:canAI.samples}));return true;}catch(_){return false;}
+}
+function canAILoadModel(){
+  try{const raw=localStorage.getItem(CAN_AI_KEY);if(!raw)return false;const saved=JSON.parse(raw);if(!saved||saved.version!==1||!saved.model||typeof saved.model!=='object')return false;
+    const model=Object.create(null);for(const [k,m] of Object.entries(saved.model)){if(!/^[FB]:[0-9A-F]{1,8}$/.test(k)||!m||!Number.isInteger(m.n)||m.n<0||!Array.isArray(m.mean)||!Array.isArray(m.m2)||!Array.isArray(m.count)||m.mean.length!==9||m.m2.length!==9||m.count.length!==9)continue;
+      if(m.mean.some(x=>!Number.isFinite(x))||m.m2.some(x=>!Number.isFinite(x)||x<0)||m.count.some(x=>!Number.isInteger(x)||x<0)||m.n>100000000)continue;model[k]=m;}
+    if(!Object.keys(model).length)return false;canAI.model=model;canAI.samples=Number.isInteger(saved.samples)&&saved.samples>=0?saved.samples:0;canAI.mode='monitor';return true;
+  }catch(_){return false;}
+}
+function canAIStartTraining(){canAI.model=Object.create(null);canAI.samples=0;canAI.anomalies=[];canAI.total=0;canAI.mode='training';canTransformerStart();try{localStorage.removeItem(CAN_AI_KEY);}catch(_){}canAIRender();canTransformerRender();}
+function canAIFinishTraining(){if(canAI.mode!=='training'||!Object.values(canAI.model).some(m=>m.n>=10)||!canTransformerFinish())return false;canAI.mode='monitor';canAISaveModel();canAIRender();canTransformerRender();return true;}
+function canAIClearModel(){canAI.mode='idle';canAI.model=Object.create(null);canAI.samples=0;canAI.anomalies=[];canAI.total=0;canTransformerClear();try{localStorage.removeItem(CAN_AI_KEY);}catch(_){}canAIRender();canTransformerRender();}
+function canAIProcessFrames(rows){
+  if(!Array.isArray(rows))return;
+  for(const row of rows){const f=canAIFeatures(row);if(!f)continue;if(canTransformer.mode==='training'||canTransformer.mode==='monitor'){ctObserve(f);if(canTransformer.mode==='monitor')continue;}
+    if(canAI.mode==='training'){
+      let m=canAI.model[f.key];if(!m)m=canAI.model[f.key]={n:0,mean:Array(9).fill(0),m2:Array(9).fill(0),count:Array(9).fill(0)};
+      canAIUpdateRow(m,f.features);canAI.samples++;continue;
+    }
+    if(canAI.mode!=='monitor')continue;
+    const m=canAI.model[f.key];if(!m)continue;
+    const score=canAIScoreRow(m,f.features);if(score<6)continue;
+    const ix=f.features.findIndex((v,i)=>v!==null&&m.count[i]>=10&&Math.abs(v-m.mean[i])/Math.sqrt(Math.max(i===0?0.04:(m.m2[i]/Math.max(1,m.count[i]-1)),i===0?0.04:1))>=score-1e-9);
+    canAI.total++;canAI.anomalies.unshift({time:new Date().toLocaleTimeString(),bus:f.bus===0?'F-CAN':'B-CAN',id:f.id,score,feature:ix===0?'frame rate':'payload byte '+(ix-1)});if(canAI.anomalies.length>20)canAI.anomalies.pop();
+  }
+  if(canAI.mode!=='idle')canAIRender();canTransformerRender();
+}
+canAILoadModel();
+canTransformerLoad();
+canAIRender();
+canTransformerRender();
+
 /* ── message handler ── */
 function onMsg(m){
   if(m.type==='sigstates'){ if(m.reset) slRows={}; (m.list||[]).forEach(r=>{ slRows[r[0]]=r; }); drawSl(); return; }
@@ -1700,6 +1908,7 @@ function onMsg(m){
     drawDec(); return;
   }
   if(m.type==='frames'){
+    canAIProcessFrames(m.l||[]);
     capFeed(m.l||[]);
     if(Array.isArray(m.drop)){ const ci=$('capIntegrity'); if(ci){ const bad=(m.drop[0]||0)+(m.drop[1]||0)+(m.over||0);
       ci.style.color=bad?'#f85149':'#3fb950';
@@ -1790,7 +1999,6 @@ function onMsg(m){
     return;
   }
   if(m.type==='tx'){ $('txStat').textContent='STM32: '+(m.message||''); return; }
-  if(m.type==='stm32_progress'){ handleFwProgress(m); return; }
   if(m.type==='label_update'){
     const id=m.id, lbl=m.label||'';
     if(frm$[id]) frm$[id].label=lbl;
@@ -1923,173 +2131,7 @@ connect();
 </script>
 <button id="backTop" type="button" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="Back to dashboard top">↑ Back to top</button>
 
-<!-- ══ FULL WIDTH: Firmware Update ══ -->
-<div class="card full" id="fwCard">
-  <div class="card-head">
-    <span class="card-title">⚡ Firmware Update</span>
-    <span class="card-sub" id="fwStatus">Ready</span>
-  </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:4px">
-
-    <!-- ESP32 update -->
-    <div style="background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:12px">
-      <div style="font-size:.78rem;font-weight:700;color:#79c0ff;margin-bottom:6px">ESP32 Dashboard Firmware</div>
-      <div style="font-size:.68rem;color:#8b949e;margin-bottom:8px">Upload a new <code style="background:#21262d;padding:1px 4px;border-radius:3px">.bin</code> built with PlatformIO. The ESP32 will reboot automatically after flashing.</div>
-      <div id="esp32DropZone" style="border:2px dashed #30363d;border-radius:6px;padding:14px;text-align:center;cursor:pointer;transition:border-color .2s" ondragover="event.preventDefault();this.style.borderColor='#58a6ff'" ondragleave="this.style.borderColor='#30363d'" ondrop="dropFw(event,'esp32')">
-        <div style="font-size:.72rem;color:#8b949e">Drag &amp; drop <b>.bin</b> here, or</div>
-        <label style="margin-top:6px;display:inline-block">
-          <input type="file" id="esp32File" accept=".bin" style="display:none" onchange="selectFw('esp32')">
-          <span class="btn btn-sm" style="margin:0" onclick="document.getElementById('esp32File').click()">Browse</span>
-        </label>
-        <div id="esp32FileName" style="font-size:.68rem;color:#8b949e;margin-top:4px">No file selected</div>
-      </div>
-      <div style="margin-top:8px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-          <span style="font-size:.68rem;color:#8b949e" id="esp32Pct">0%</span>
-          <button class="btn btn-sm" onclick="flashESP32()" id="esp32Btn" disabled>Flash ESP32</button>
-        </div>
-        <div style="height:6px;background:#21262d;border-radius:3px;overflow:hidden">
-          <div id="esp32Bar" style="height:6px;width:0%;background:#58a6ff;border-radius:3px;transition:width .2s"></div>
-        </div>
-        <div id="esp32Msg" style="font-size:.65rem;color:#8b949e;margin-top:4px;min-height:1em"></div>
-      </div>
-    </div>
-
-    <!-- STM32 update -->
-    <div style="background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:12px">
-      <div style="font-size:.78rem;font-weight:700;color:#e3b341;margin-bottom:6px">STM32F407 Firmware</div>
-      <div style="font-size:.68rem;color:#8b949e;margin-bottom:4px">Upload a <code style="background:#21262d;padding:1px 4px;border-radius:3px">.bin</code> built with <code style="background:#21262d;padding:1px 4px;border-radius:3px">make firmware</code>. Application and ROM loader share USART3 PB10/PB11 on GPIO16/17. <b style="color:#f85149">Hardware prerequisite:</b> fit MB997 SB19 ON so PB2/BOOT1 is held low. Not verified on a physical board.</div>
-      <div style="font-size:.65rem;background:#1c2128;border:1px solid #30363d;border-radius:4px;padding:6px;margin-bottom:8px;color:#8b949e">
-        <b style="color:#e3b341">⚠ Wiring required:</b> ESP32 GPIO26 → BOOT0 (P2-21) &nbsp;|&nbsp; GPIO25 → NRST (P1-6, open-drain) &nbsp;|&nbsp; STM32 PB10/USART3_TX → GPIO16/RX &nbsp;|&nbsp; GPIO17/TX → PB11/USART3_RX. <b>Fit SB19 ON (BOOT1 low); no ESP32 PB2 wire.</b>
-      </div>
-      <div id="stm32DropZone" style="border:2px dashed #30363d;border-radius:6px;padding:14px;text-align:center;cursor:pointer;transition:border-color .2s" ondragover="event.preventDefault();this.style.borderColor='#e3b341'" ondragleave="this.style.borderColor='#30363d'" ondrop="dropFw(event,'stm32')">
-        <div style="font-size:.72rem;color:#8b949e">Drag &amp; drop <b>.bin</b> here, or</div>
-        <label style="margin-top:6px;display:inline-block">
-          <input type="file" id="stm32File" accept=".bin" style="display:none" onchange="selectFw('stm32')">
-          <span class="btn btn-sm" style="margin:0;background:#2d2008;border-color:#e3b341;color:#e3b341" onclick="document.getElementById('stm32File').click()">Browse</span>
-        </label>
-        <div id="stm32FileName" style="font-size:.68rem;color:#8b949e;margin-top:4px">No file selected</div>
-      </div>
-      <div style="margin-top:8px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-          <span style="font-size:.68rem;color:#8b949e" id="stm32Pct">0%</span>
-          <button class="btn btn-sm" onclick="flashSTM32()" id="stm32Btn" disabled style="background:#2d2008;border-color:#e3b341;color:#e3b341">Flash STM32</button>
-        </div>
-        <div style="height:6px;background:#21262d;border-radius:3px;overflow:hidden">
-          <div id="stm32Bar" style="height:6px;width:0%;background:#e3b341;border-radius:3px;transition:width .2s"></div>
-        </div>
-        <div id="stm32Msg" style="font-size:.65rem;color:#8b949e;margin-top:4px;min-height:1em"></div>
-      </div>
-    </div>
-
-  </div>
-</div>
-
 <script>
-/* ═══════════════════════════════════════════════
-   FIRMWARE UPDATE
-   ═══════════════════════════════════════════════ */
-const fwFiles={esp32:null,stm32:null};
-
-function selectFw(target){
-  const f=document.getElementById(target+'File').files[0];
-  if(!f) return;
-  fwFiles[target]=f;
-  document.getElementById(target+'FileName').textContent=f.name+' ('+Math.round(f.size/1024)+' KB)';
-  document.getElementById(target+'Btn').disabled=false;
-}
-function dropFw(ev,target){
-  event.preventDefault();
-  document.getElementById(target+'DropZone').style.borderColor='#30363d';
-  const f=ev.dataTransfer.files[0];
-  if(!f||!f.name.endsWith('.bin')){
-    document.getElementById(target+'Msg').textContent='Only .bin files accepted.'; return;
-  }
-  fwFiles[target]=f;
-  document.getElementById(target+'FileName').textContent=f.name+' ('+Math.round(f.size/1024)+' KB)';
-  document.getElementById(target+'Btn').disabled=false;
-  document.getElementById(target+'Msg').textContent='';
-}
-
-function flashESP32(){
-  const f=fwFiles.esp32; if(!f) return;
-  document.getElementById('esp32Btn').disabled=true;
-  document.getElementById('esp32Msg').textContent='Uploading…';
-  const xhr=new XMLHttpRequest();
-  xhr.open('POST','/update',true);
-  xhr.upload.onprogress=e=>{
-    if(e.lengthComputable){
-      const pct=Math.round(e.loaded/e.total*100);
-      document.getElementById('esp32Bar').style.width=pct+'%';
-      document.getElementById('esp32Pct').textContent=pct+'%';
-    }
-  };
-  xhr.onload=()=>{
-    if(xhr.status===200){
-      document.getElementById('esp32Msg').style.color='#56d364';
-      document.getElementById('esp32Msg').textContent='✓ Flash OK — ESP32 rebooting…';
-      document.getElementById('esp32Bar').style.background='#56d364';
-    } else {
-      document.getElementById('esp32Msg').style.color='#f85149';
-      document.getElementById('esp32Msg').textContent='✗ Error: '+xhr.responseText;
-      document.getElementById('esp32Btn').disabled=false;
-    }
-  };
-  xhr.onerror=()=>{
-    document.getElementById('esp32Msg').style.color='#f85149';
-    document.getElementById('esp32Msg').textContent='✗ Upload failed — connection lost (normal after reboot)';
-    document.getElementById('esp32Btn').disabled=false;
-  };
-  const fd=new FormData(); fd.append('firmware',f,f.name);
-  xhr.send(fd);
-}
-
-function flashSTM32(){
-  const f=fwFiles.stm32; if(!f) return;
-  document.getElementById('stm32Btn').disabled=true;
-  document.getElementById('stm32Msg').textContent='Uploading binary to ESP32…';
-  document.getElementById('stm32Bar').style.width='5%';
-  const xhr=new XMLHttpRequest();
-  xhr.open('POST','/update-stm32',true);
-  xhr.upload.onprogress=e=>{
-    if(e.lengthComputable){
-      const pct=Math.round(e.loaded/e.total*50); // upload = 0-50%
-      document.getElementById('stm32Bar').style.width=pct+'%';
-      document.getElementById('stm32Pct').textContent=pct+'%';
-    }
-  };
-  xhr.onload=()=>{
-    if(xhr.status===200){
-      document.getElementById('stm32Msg').style.color='#56d364';
-      document.getElementById('stm32Msg').textContent='✓ '+xhr.responseText;
-      document.getElementById('stm32Bar').style.width='100%';
-      document.getElementById('stm32Bar').style.background='#56d364';
-      document.getElementById('stm32Pct').textContent='100%';
-    } else {
-      document.getElementById('stm32Msg').style.color='#f85149';
-      document.getElementById('stm32Msg').textContent='✗ Error: '+xhr.responseText;
-      document.getElementById('stm32Btn').disabled=false;
-    }
-  };
-  xhr.onerror=()=>{
-    document.getElementById('stm32Msg').style.color='#f85149';
-    document.getElementById('stm32Msg').textContent='✗ Connection lost during upload.';
-    document.getElementById('stm32Btn').disabled=false;
-  };
-  // STM32 flash progress arrives as WebSocket stm32_progress messages
-  const fd=new FormData(); fd.append('firmware',f,f.name);
-  xhr.send(fd);
-}
-
-/* Listen for stm32_progress messages from WebSocket */
-function handleFwProgress(m){
-  if(m.type!=='stm32_progress') return;
-  const pct=50+Math.round((m.pct||0)/2); // flashing = 50-100%
-  document.getElementById('stm32Bar').style.width=pct+'%';
-  document.getElementById('stm32Pct').textContent=pct+'%';
-  document.getElementById('stm32Msg').textContent=m.msg||'';
-}
-
 /* ══════════════════════════════════════════════════════════════════════════
  *  EDIT DASH LAYOUT — iOS-style wiggle, show/hide, drag-and-drop reorder
  * ══════════════════════════════════════════════════════════════════════════ */
@@ -2099,7 +2141,7 @@ function handleFwProgress(m){
     'top-cards-wrap','systemsCard','decSignals','stateCapture',
     'liveEngineSensors','events','main-grid','canAnalyzer',
     'signalExplorer','sigLearn','settings','canAbilities',
-    'controllers','diagnostics','operatingMode','fwCard'
+    'controllers','diagnostics','operatingMode'
   ];
   const PANEL_NAMES={
     'top-cards-wrap':'Top Metric Cards','systemsCard':'Vehicle Systems',
@@ -2109,7 +2151,7 @@ function handleFwProgress(m){
     'signalExplorer':'Signal Explorer','sigLearn':'Signal Learning',
     'settings':'Settings','canAbilities':'bxCAN Abilities',
     'controllers':'Controllers','diagnostics':'Diagnostics',
-    'operatingMode':'Operating Mode','fwCard':'Firmware Update'
+    'operatingMode':'Operating Mode'
   };
 
   let editActive=false;
