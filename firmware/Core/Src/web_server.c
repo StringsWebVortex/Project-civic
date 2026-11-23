@@ -146,7 +146,7 @@ static void http_pump(http_conn_t *c)
 static const char *status_text(int s)
 {
     switch (s) {
-    case 200: return "OK"; case 400: return "Bad Request"; case 401: return "Unauthorized";
+    case 200: return "OK"; case 302: return "Found"; case 400: return "Bad Request"; case 401: return "Unauthorized";
     case 404: return "Not Found"; case 410: return "Gone"; case 413: return "Payload Too Large"; case 414: return "URI Too Long";
     case 500: return "Internal Server Error"; case 503: return "Service Unavailable";
     default:  return "OK";

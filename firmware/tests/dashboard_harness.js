@@ -373,6 +373,35 @@ function fail(msg) { console.log('FAIL: ' + msg); process.exitCode = 1; }
   if (!sl.includes('ENGINE_DATA') || !sl.includes('VERIFIED') || !sl.includes('POWERTRAIN_DATA')) fail('signal learning table: ' + sl);
   if (!(await page.textContent('#slSum')).startsWith('1 verified')) fail('signal learning summary');
   if (await page.locator('#sideNav a[href="#sigLearn"]').count() !== 1) fail('Signal Learning missing from side bar');
+  // Local CAN AI baseline learning and anomaly scoring are read-only.
+  if (await page.locator('#fwCard, #esp32File, #stm32File').count()) fail('iPhone dashboard still exposes the ESP32-dependent firmware uploader');
+  await page.evaluate(() => { localStorage.removeItem(CAN_AI_KEY); canAIClearModel(); canAIStartTraining(); window.__ctInitial = JSON.stringify(ctWq); });
+  if (await page.evaluate(() => canAIFinishTraining()) !== false) fail('AI accepted an empty training baseline');
+  const validAiFrame = ['17C',0,8,'0000000000000000',10,2.0];
+  await page.evaluate(r => canAIProcessFrames(Array(600).fill(r)), validAiFrame);
+  const learned = await page.evaluate(() => ({mode:canAI.mode,n:canAI.model['F:17C'].n,samples:canAI.samples,encoderChanged:JSON.stringify(ctWq)!==window.__ctInitial}));
+  if (learned.mode!=='training' || learned.n!==600 || learned.samples!==600 || !learned.encoderChanged) fail('AI baseline training count wrong: '+JSON.stringify(learned));
+  const invalidAi = await page.evaluate(() => canAIFeatures(['bad',2,9,'xx',0,NaN])===null);
+  if (!invalidAi) fail('AI feature extractor accepted malformed CAN data');
+  await page.evaluate(() => canAIFinishTraining());
+  if (await page.textContent('#aiState')!=='TRANSFORMER ACTIVE') fail('Transformer did not enter prediction mode');
+  await page.evaluate(r => canAIProcessFrames([r]), validAiFrame);
+  if (await page.evaluate(() => canAI.total)!==0) fail('AI model flagged an unchanged baseline as anomalous');
+  const sentBeforeAi = await page.evaluate(() => window.__sent.length);
+  await page.evaluate(r => canAIProcessFrames([r]), ['17C',0,8,'0000000000000000',10,100.0]);
+  const aiResult = await page.evaluate(() => ({total:canAI.total,score:canAI.anomalies[0]&&canAI.anomalies[0].score,feature:canAI.anomalies[0]&&canAI.anomalies[0].feature}));
+  if (aiResult.total!==1 || !(aiResult.score>1) || aiResult.feature!=='sequence forecast') fail('AI anomaly score incorrect: '+JSON.stringify(aiResult));
+  if (await page.evaluate(n => window.__sent.length!==n, sentBeforeAi)) fail('AI monitor transmitted a CAN command');
+  await page.evaluate(() => { canAISaveModel(); canAI.model=Object.create(null); canAI.mode='idle'; canAI.samples=0; canAILoadModel(); canAIRender(); });
+  if (await page.evaluate(() => canAI.mode)!=='monitor') fail('saved AI baseline did not reload');
+  const ctShape = await page.evaluate(() => ({inputs:CT_INPUTS,width:CT_WIDTH,context:CT_CONTEXT,encoded:ctEncode([Array(CT_INPUTS).fill(0),Array(CT_INPUTS).fill(.1)]).length,predicted:ctPredict([Array(CT_INPUTS).fill(0),Array(CT_INPUTS).fill(.1)]).y.length}));
+  if (ctShape.inputs!==12 || ctShape.width!==8 || ctShape.context!==8 || ctShape.encoded!==8 || ctShape.predicted!==12)
+    fail('Transformer tensor dimensions wrong: '+JSON.stringify(ctShape));
+  const ctReload = await page.evaluate(() => { const q=JSON.stringify(ctWq), ok=canTransformerSave(); canTransformer.head=null; ctWq=ctMatrix(CT_INPUTS,CT_WIDTH,99,0.5); canTransformer.mode='idle'; canAI.mode='idle'; return ok && canTransformerLoad() && canTransformer.mode==='monitor' && JSON.stringify(ctWq)===q; });
+  if (!ctReload) fail('saved Transformer weights did not reload');
+  await page.evaluate(() => canAIClearModel());
+  if (await page.evaluate(() => Object.keys(canAI.model).length)!==0) fail('AI clear did not remove model');
+
   await browser.close();
   if (!process.exitCode) console.log('dashboard harness: all checks passed');
 })().catch(e => { console.log('FAIL: ' + e.message); process.exit(1); });
