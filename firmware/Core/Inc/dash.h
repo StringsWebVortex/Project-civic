@@ -15,6 +15,19 @@ typedef void (*dash_cmd_fn)(const char *line);   /* line without newline */
 bool dash_init(dash_cmd_fn cmd, can_capture_queue_t *q_fcan, can_capture_queue_t *q_bcan);
 void dash_on_line(const char *line);             /* every line the STM32 emits */
 void dash_poll(void);
+/* Virtual WebSocket peer used by the ESP32 Wi-Fi bridge over USART2. */
+void dash_bridge_connected(void);
+void dash_bridge_disconnected(void);
+void dash_bridge_text(char *msg, size_t len);
+#ifdef FS_HOST_TEST
+void dash_test_fail_save_events(bool fail);
+void dash_test_fail_event_rewrite(bool fail);
+void dash_test_run_backup_service(void);
+void dash_test_capture_post_event_sample(void);
+bool dash_test_snapshot_ready(uint32_t id);
+uint32_t dash_test_latest_event_id(void);
+void dash_test_reset_frame_table(void);
+#endif
 /* Device profiles / target / learned grades changed: mirror to the EEPROM. */
 void dash_identity_changed(void);
 /* Live bus state (bitrate, listen-only); false if the bus is not running. */

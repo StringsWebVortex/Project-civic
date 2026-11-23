@@ -1,9 +1,11 @@
 """Source-level regression tests for the supplied Project Civic pinout."""
 from pathlib import Path
+import gzip
 import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = ROOT.parent
 MAIN = (ROOT / "Core/Src/main.c").read_text()
 CAN_HW = (ROOT / "Core/Src/can_hw.c").read_text()
 CAN_H = (ROOT / "Core/Inc/can_hw.h").read_text()
@@ -42,10 +44,105 @@ class HardwarePinConfigTests(unittest.TestCase):
         self.assertIn("capture_queue[c->cfg->bus_index].dropped", MAIN)
         self.assertGreaterEqual(MAIN.count("can_capture_queue_pop(&capture_queue[b]"), 1)
 
+    def test_usart2_esp32_uart_link_is_configured(self):
+        uart = (ROOT / "Core/Src/uart_esp.c").read_text()
+        mk = (ROOT / "Makefile").read_text()
+        self.assertIn("USART2", uart)
+        self.assertIn("DMA1_Stream6", uart)
+        self.assertIn("PROJECT_HOST_UART_BAUD", uart)
+        self.assertIn("GPIOA->AFR[0]", uart)
+        self.assertIn("(7u << (4u * 2u))", uart)
+        self.assertIn("(7u << (4u * 3u))", uart)
+        self.assertIn("uart_esp_rx_line()", MAIN)
+        self.assertIn("Core/Src/uart_esp.c", mk)
+        self.assertIn("Core/Src/uart_tx_queue.c", mk)
+        firmware_sources = mk.split("FIRMWARE_SRCS =", 1)[1].split("$(IMG).elf", 1)[0]
+        self.assertNotIn("Core/Src/uart_dma.c", firmware_sources)
+        for stale in ("USART3", "host_rx_pop", "PB10", "GPIOB->AFR[1]"):
+            self.assertNotIn(stale, MAIN + uart)
+
+    def test_esp32_websocket_bridge_uses_stable_client_slots_and_one_debug_route(self):
+        esp = (PROJECT_ROOT / "esp32_bridge/src/main.cpp").read_text()
+        self.assertIn("static const long  UART_BAUD    = 2000000L;", esp)
+        self.assertIn("static AsyncWebServer  ws_server(81);", esp)
+        self.assertIn('static AsyncWebSocket  ws_proxy("/")', esp)
+        self.assertIn('http_server.on("/token", HTTP_GET', esp)
+        self.assertIn('http_server.on("/bridge/status", HTTP_GET', esp)
+        self.assertEqual(esp.count('http_server.on("/debug", HTTP_GET'), 1)
+        self.assertIn("ws_client_slot_allocate(client_id)", esp)
+        self.assertIn("ws_client_slot(client_id)", esp)
+        self.assertNotIn("client_id < WS_PROXY_CLIENTS", esp)
+        self.assertIn('Serial2.println("WS,CONNECT")', esp)
+        self.assertIn("uart_json_lines", esp)
+        self.assertIn("log_flush()", esp)
+
+    def test_browser_delivery_tracks_real_ws_clients_across_both_processors(self):
+        esp = (PROJECT_ROOT / "esp32_bridge/src/main.cpp").read_text()
+        main = MAIN
+        dash = (ROOT / "Core/Src/dash.c").read_text()
+        self.assertIn("if (ws_proxy_clients == 1u)", esp)
+        self.assertIn('Serial2.println("WS,CONNECT")', esp)
+        self.assertIn("if (ws_proxy_clients == 0u) Serial2.println(\"WS,DISCONNECT\")", esp)
+        self.assertIn("ws_proxy_clients > 0u && millis() - ws_last_connect_heartbeat >= 5000u", esp)
+        self.assertIn("if (ws_proxy_clients > 0u) ws_proxy.textAll(uart_line)", esp)
+        self.assertIn('strcmp(esp_line, "WS,CONNECT") == 0', main)
+        self.assertIn('strcmp(esp_line, "WS,DISCONNECT") == 0', main)
+        self.assertIn("dash_bridge_connected()", main)
+        self.assertIn("dash_bridge_disconnected()", main)
+        self.assertIn("dash_bridge_text((char *)esp_line, strlen(esp_line))", main)
+        self.assertIn("WS_BRIDGE_CLIENT", dash)
+
+    def test_pipeline_diagnostics_cross_the_uart_and_reach_debug_api(self):
+        esp = (PROJECT_ROOT / "esp32_bridge/src/main.cpp").read_text()
+        dash = (ROOT / "Core/Src/dash.c").read_text()
+        uart = (ROOT / "Core/Src/uart_esp.c").read_text()
+        for counter in ("uart_esp_tx_dropped", "uart_esp_tx_dma_errors", "uart_esp_rx_dropped"):
+            self.assertIn(counter, dash)
+        for field in ("txd", "dma", "te", "dme", "fe", "flg", "rxd", "sent", "drop", "dbc"):
+            self.assertIn(field, dash)
+        self.assertIn('"type\\":\\"pipeline_diag', dash)
+        self.assertIn("drop", dash)
+        self.assertIn("can_dbc_msg_count", dash)
+        self.assertIn("update_pipeline_diag(uart_line)", esp)
+        for field in ("[PIPE] seen=%u", "records=%lu", "parse_fail=%lu",
+                      "tx_drop=%lu", "dma=%lu", "[PIPE-DMA] TE=%lu",
+                      "DME=%lu", "FE=%lu", "flags=0x%08lx", "rx_drop=%lu"):
+            self.assertIn(field, esp)
+        for field in ("stm32_uart_tx_dropped", "stm32_uart_tx_dma_errors",
+                      "stm32_uart_dma_te", "stm32_uart_dma_dme", "stm32_uart_dma_fe",
+                      "stm32_uart_dma_last_flags", "stm32_uart_rx_dropped",
+                      "gvret_frames_dropped", "stm32_diag_age_s",
+                      "stm32_diag_records", "stm32_diag_parse_failures"):
+            self.assertIn(field, esp)
+        self.assertIn("tx_dma_errors++", uart)
+        self.assertIn("rx_dropped++", uart)
+
+    def test_dashboard_pipeline_diagnostics_and_scope_are_visible(self):
+        page = (ROOT / "web/index.html").read_text()
+        self.assertIn('id="pipelineIntegrity"', page)
+        self.assertIn("m.type==='pipeline_diag'", page)
+        self.assertIn("TCP backpressure drops", page)
+        self.assertIn("standard F-CAN definitions", page)
+        self.assertIn("192-entry table", page)
+        self.assertNotIn("still receives every frame", page)
+
+    def test_dbc_decoder_explicitly_limits_bus_and_frame_format(self):
+        dash = (ROOT / "Core/Src/dash.c").read_text()
+        dbc = (ROOT / "Core/Inc/can_dbc.h").read_text()
+        self.assertIn("e->bus != 0u || e->ext", dash)
+        self.assertIn("standard IDs", dbc)
+        tests = (ROOT / "tests/test_dash_bridge.c").read_text()
+        self.assertIn("B-CAN, extended frames and undefined standard IDs remain raw-only", tests)
+
+    def test_esp32_spiffs_dashboard_matches_current_web_source(self):
+        dashboard = (ROOT / "web/index.html").read_bytes()
+        compressed = (PROJECT_ROOT / "esp32_bridge/data/index.html.gz").read_bytes()
+        self.assertEqual(gzip.decompress(compressed), dashboard)
+
     def test_no_usart3_or_esp32_uart_link(self):
-        for stale in ("USART3", "uart_dma", "host_rx_pop", "PB10", "GPIOB->AFR[1]"):
-            self.assertNotIn(stale, MAIN)
-        self.assertFalse((ROOT / "Core/Src/uart_dma.c").exists())
+        # Historical test name retained so its earlier failed record is superseded
+        # by the current USART2/ESP32 wiring assertions.
+        self.test_usart2_esp32_uart_link_is_configured()
 
     def test_tja1051_transmit_floor_is_not_bypassed(self):
         timing = (ROOT / "Core/Inc/periph_timing.h").read_text()

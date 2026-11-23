@@ -36,6 +36,8 @@ function fail(msg) { console.log('FAIL: ' + msg); process.exitCode = 1; }
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));
   await page.addInitScript(fakeWs);
+  // Legacy buggy builds stored a flat order array that moved unrelated sections.
+  await page.addInitScript(() => localStorage.setItem('dashOrder', JSON.stringify(['top-cards-wrap','systemsCard','decSignals'])));
   await page.route('http://dash.test/', r => r.fulfill({ contentType: 'text/html', body: html }));
   await page.goto('http://dash.test/');
   await page.waitForFunction(() => window.__authOk === true, null, { timeout: 5000 });
@@ -267,6 +269,18 @@ function fail(msg) { console.log('FAIL: ' + msg); process.exitCode = 1; }
   if (!ci.ok.includes('no frame dropped')) fail('integrity OK text wrong: ' + ci.ok);
   if (!ci.bad.includes('CAPTURE LOSS') || !ci.bad.includes('F-CAN 3') || !ci.bad.includes('2 frames')) fail('capture loss not shown: ' + ci.bad);
 
+  const pipe = await page.evaluate(() => {
+    __deliver({ type: 'pipeline_diag', txd: 4, dma: 2, rxd: 1, te: 1, dme: 2, fe: 3,
+      gv: 1, sent: 500, drop: 3, dbc: 34 });
+    return { text: $('pipelineIntegrity').textContent, color: $('pipelineIntegrity').style.color };
+  });
+  if (!pipe.text.includes('TX queue drops 4') || !pipe.text.includes('DMA errors 2') ||
+      !pipe.text.includes('TE 1 / DME 2 / FE 3') ||
+      !pipe.text.includes('TCP backpressure drops 3') || !pipe.text.includes('34 standard F-CAN')) {
+    fail('pipeline diagnostics not rendered: ' + pipe.text);
+  }
+  if (pipe.color !== 'rgb(248, 81, 73)' && pipe.color !== '#f85149') fail('pipeline error state not highlighted: ' + pipe.color);
+
   // Honda DID layouts (OBDb) + system blocks
   const sys = await page.evaluate(() => {
     const vtec = OBDB.find(c => c.h === 'DA10' && c.did === '2612');
@@ -401,6 +415,111 @@ function fail(msg) { console.log('FAIL: ' + msg); process.exitCode = 1; }
   if (!ctReload) fail('saved Transformer weights did not reload');
   await page.evaluate(() => canAIClearModel());
   if (await page.evaluate(() => Object.keys(canAI.model).length)!==0) fail('AI clear did not remove model');
+
+  // Drawer scrolling is isolated from the dashboard behind it.
+  await page.evaluate(() => { window.scrollTo(0, 360); });
+  const drawerBefore = await page.evaluate(() => window.scrollY);
+  await page.evaluate(() => window.openDashboardNav());
+  const drawerOpen = await page.evaluate(() => ({
+    open: document.getElementById('sideNav').classList.contains('open'),
+    bodyPosition: getComputedStyle(document.body).position,
+    bodyTop: document.body.style.top,
+    overscroll: getComputedStyle(document.getElementById('sideNav')).overscrollBehaviorY
+  }));
+  if (!drawerOpen.open || drawerOpen.bodyPosition !== 'fixed' || drawerOpen.overscroll !== 'contain')
+    fail('drawer does not isolate background scrolling: ' + JSON.stringify(drawerOpen));
+  await page.evaluate(() => window.closeDashboardNav());
+  const drawerAfter = await page.evaluate(() => ({ y: window.scrollY, position: document.body.style.position }));
+  if (drawerAfter.y !== drawerBefore || drawerAfter.position !== '')
+    fail('closing drawer did not restore dashboard scroll: ' + JSON.stringify({before:drawerBefore,after:drawerAfter}));
+
+  // Layout editor opens, exposes eye/drag controls, persists visibility and reorders panels.
+  await page.evaluate(() => {
+    window.__layoutParentsBefore=Object.fromEntries([...document.querySelectorAll('.dash-panel')].map(e=>[e.id,e.parentElement]));
+    localStorage.setItem('dashHidden', JSON.stringify(['systemsCard']));
+    window.openDashboardNav(); window.enterEditMode();
+  });
+  const editState = await page.evaluate(() => ({
+    active: document.body.classList.contains('edit-layout-mode'),
+    drawerClosed: !document.getElementById('sideNav').classList.contains('open'),
+    panels: document.querySelectorAll('.dash-panel').length,
+    handles: document.querySelectorAll('.dash-panel .panel-drag-handle').length,
+    eyes: document.querySelectorAll('.dash-panel .panel-eye-btn').length,
+    wiggle: getComputedStyle(document.querySelector('.dash-panel')).animationName,
+    finish: getComputedStyle(document.getElementById('editFinishBtn')).display,
+    finishText: document.getElementById('editFinishBtn').textContent,
+    hiddenPanelDisplay: getComputedStyle(document.getElementById('systemsCard')).display,
+    hiddenPanelClass: document.getElementById('systemsCard').classList.contains('panel-hidden'),
+    hiddenPanelButton: document.querySelector('#systemsCard .panel-eye-btn').textContent,
+    parentChanges: [...document.querySelectorAll('.dash-panel')].filter(e=>window.__layoutParentsBefore[e.id]!==e.parentElement).map(e=>e.id)
+  }));
+  if (!editState.active || !editState.drawerClosed || editState.panels < 10 ||
+      editState.handles !== editState.panels || editState.eyes !== editState.panels ||
+      editState.wiggle !== 'none' || editState.finish === 'none' || !editState.finishText.includes('Stop Editing') ||
+      editState.hiddenPanelDisplay === 'none' || !editState.hiddenPanelClass || editState.hiddenPanelButton !== 'Show' ||
+      editState.parentChanges.length)
+    fail('layout editor controls did not initialize: ' + JSON.stringify(editState));
+  await page.locator('#systemsCard .panel-eye-btn').evaluate(e => e.click());
+  if (!(await page.locator('#systemsCard').evaluate(e => e.classList.contains('panel-visible'))))
+    fail('Show control did not restore a previously hidden panel while editing');
+  await page.locator('#systemsCard .panel-eye-btn').evaluate(e => e.click());
+  if (!(await page.locator('#systemsCard').evaluate(e => e.classList.contains('panel-hidden'))))
+    fail('Hide control did not hide Vehicle Systems');
+  const dragResult = await page.evaluate(() => {
+    const panels=[...document.querySelectorAll('.dash-panel')];
+    const pair=panels.find(a=>panels.some(b=>b!==a&&b.parentNode===a.parentNode));
+    const a=pair, b=panels.find(x=>x!==a&&x.parentNode===a.parentNode);
+    if(!a||!b) return {error:'no sibling panel pair'};
+    const handle=a.querySelector('.panel-drag-handle'), r=b.getBoundingClientRect();
+    const before=[...a.parentNode.children].filter(e=>e.classList&&e.classList.contains('dash-panel')).map(e=>e.id);
+    handle.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true,clientX:10,clientY:10,pointerId:1}));
+    document.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:r.left+20,clientY:r.top+r.height/2,pointerId:1}));
+    document.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,clientX:r.left+20,clientY:r.top+r.height/2,pointerId:1}));
+    const after=[...a.parentNode.children].filter(e=>e.classList&&e.classList.contains('dash-panel')).map(e=>e.id);
+    return {before:before.indexOf(a.id),after:after.indexOf(a.id),group:a.parentNode.dataset.dashGroup,ids:after};
+  });
+  if (dragResult.error || !(dragResult.after > dragResult.before))
+    fail('panel drag did not reorder sibling dashboard sections: ' + JSON.stringify(dragResult));
+  const crossGroupResult = await page.evaluate(() => {
+    const a=document.getElementById('top-cards-wrap'), b=document.getElementById('systemsCard');
+    const before=a.parentNode;
+    const r=b.getBoundingClientRect();
+    const h=a.querySelector('.panel-drag-handle');
+    h.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true,clientX:10,clientY:10,pointerId:2}));
+    document.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:r.left+20,clientY:r.top+r.height/2,pointerId:2}));
+    document.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,clientX:r.left+20,clientY:r.top+r.height/2,pointerId:2}));
+    return a.parentNode===before;
+  });
+  if (!crossGroupResult) fail('drag unexpectedly moved a panel into another layout container');
+  await page.evaluate(() => window.finishEditMode());
+  const savedLayout = await page.evaluate(() => ({
+    hidden: JSON.parse(localStorage.getItem('dashHidden')||'[]'),
+    order: JSON.parse(localStorage.getItem('dashOrder')||'{}'),
+    hiddenStyle: document.getElementById('systemsCard').style.display
+  }));
+  if (!savedLayout.hidden.includes('systemsCard') || savedLayout.hiddenStyle !== 'none' ||
+      !Object.values(savedLayout.order).some(ids => Array.isArray(ids) && ids.includes('top-cards-wrap') && ids.includes('systemsCard')))
+    fail('layout changes were not persisted: ' + JSON.stringify(savedLayout));
+  await page.evaluate(() => { localStorage.removeItem('dashHidden'); localStorage.removeItem('dashOrder'); });
+
+  // Repeat the drawer isolation check at a phone-sized viewport.
+  await page.setViewportSize({width:390,height:500});
+  await page.evaluate(() => { window.scrollTo(0, 420); window.openDashboardNav(); });
+  const mobileDrawer = await page.evaluate(() => {
+    const nav=document.getElementById('sideNav');
+    nav.scrollTop=nav.scrollHeight;
+    return {
+      bodyPosition:getComputedStyle(document.body).position,
+      navScrollTop:nav.scrollTop,
+      navClientHeight:nav.clientHeight,
+      navScrollHeight:nav.scrollHeight,
+      overscroll:getComputedStyle(nav).overscrollBehaviorY
+    };
+  });
+  if (mobileDrawer.bodyPosition !== 'fixed' || mobileDrawer.navScrollTop <= 0 ||
+      mobileDrawer.navScrollHeight <= mobileDrawer.navClientHeight || mobileDrawer.overscroll !== 'contain')
+    fail('phone drawer does not scroll independently: ' + JSON.stringify(mobileDrawer));
+  await page.evaluate(() => window.closeDashboardNav());
 
   await browser.close();
   if (!process.exitCode) console.log('dashboard harness: all checks passed');

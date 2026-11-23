@@ -42,6 +42,10 @@ static const char *ESP_DASH = "http://192.168.4.1/";
 static const int   UART_RX_PIN  = 16;
 static const int   UART_TX_PIN  = 17;
 static const long  UART_BAUD    = 2000000L;
+static const size_t UART_RX_BUFFER_SIZE = 8192u;
+static const size_t UART_LINE_MAX = 2048u;
+static const size_t WS_COMMAND_MAX = 1400u;
+static const size_t WS_PROXY_CLIENTS = 4u;
 
 /* STM32 bootloader control pins */
 static const int   PIN_NRST  = 26;
@@ -64,6 +68,120 @@ static AsyncWebSocket  ws_proxy("/");     /* port 81 — WS proxy to STM */
 static DNSServer       dns;
 
 static uint32_t uart_rx_bytes = 0;
+static uint32_t uart_rx_lines = 0;
+static uint32_t uart_json_lines = 0;
+static uint32_t uart_ignored_lines = 0;
+static uint32_t uart_line_overflows = 0;
+static uint32_t stm32_uart_tx_dropped = 0;
+static uint32_t stm32_uart_tx_dma_errors = 0;
+static uint32_t stm32_uart_dma_te = 0;
+static uint32_t stm32_uart_dma_dme = 0;
+static uint32_t stm32_uart_dma_fe = 0;
+static uint32_t stm32_uart_dma_last_flags = 0;
+static uint32_t stm32_uart_rx_dropped = 0;
+static uint32_t stm32_gvret_frames_sent = 0;
+static uint32_t stm32_gvret_frames_dropped = 0;
+static uint32_t stm32_dbc_messages = 0;
+static uint32_t stm32_diag_last_ms = 0;
+static uint32_t stm32_diag_records = 0;
+static uint32_t stm32_diag_parse_failures = 0;
+static uint32_t stm32_diag_last_length = 0;
+static bool stm32_gvret_client = false;
+static bool stm32_diag_seen = false;
+static uint32_t log_dropped_lines = 0;
+static volatile uint8_t ws_proxy_clients = 0;
+static uint32_t ws_last_connect_heartbeat = 0;
+static String uart_line;
+static bool uart_line_overflow = false;
+static char ws_command[WS_PROXY_CLIENTS][WS_COMMAND_MAX];
+static uint16_t ws_command_total[WS_PROXY_CLIENTS] = {0};
+static bool ws_command_active[WS_PROXY_CLIENTS] = {false};
+static uint32_t ws_client_ids[WS_PROXY_CLIENTS] = {
+    UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX
+};
+
+static int ws_client_slot(uint32_t client_id) {
+    for (size_t i = 0; i < WS_PROXY_CLIENTS; ++i)
+        if (ws_client_ids[i] == client_id) return (int)i;
+    return -1;
+}
+
+static int ws_client_slot_allocate(uint32_t client_id) {
+    const int existing = ws_client_slot(client_id);
+    if (existing >= 0) return existing;
+    for (size_t i = 0; i < WS_PROXY_CLIENTS; ++i) {
+        if (ws_client_ids[i] == UINT32_MAX) {
+            ws_client_ids[i] = client_id;
+            ws_command_active[i] = false;
+            ws_command_total[i] = 0u;
+            return (int)i;
+        }
+    }
+    return -1;
+}
+static bool json_u32_field(const String &json, const char *key, uint32_t *value) {
+    String token = "\"";
+    token += key;
+    token += "\":";
+    int at = json.indexOf(token);
+    if (at < 0) return false;
+    int pos = at + token.length();
+    while (pos < (int)json.length() && (json[pos] == ' ' || json[pos] == '\t')) pos++;
+    if (pos >= (int)json.length() || json[pos] < '0' || json[pos] > '9') return false;
+    uint32_t parsed = 0u;
+    while (pos < (int)json.length() && json[pos] >= '0' && json[pos] <= '9') {
+        const uint32_t digit = (uint32_t)(json[pos] - '0');
+        if (parsed > (UINT32_MAX - digit) / 10u) return false;
+        parsed = parsed * 10u + digit;
+        pos++;
+    }
+    if (pos < (int)json.length() && json[pos] != ',' && json[pos] != '}') return false;
+    *value = parsed;
+    return true;
+}
+
+static void update_pipeline_diag(const String &json) {
+    if (json.indexOf("\"type\":\"pipeline_diag\"") < 0) return;
+    stm32_diag_records++;
+    stm32_diag_last_length = (uint32_t)json.length();
+    uint32_t tx_dropped, dma_errors, dma_te, dma_dme, dma_fe, dma_flags;
+    uint32_t rx_dropped, gvret_client, gvret_sent, gvret_dropped, dbc_messages;
+    const bool parsed =
+        json_u32_field(json, "txd", &tx_dropped) &&
+        json_u32_field(json, "dma", &dma_errors) &&
+        json_u32_field(json, "te", &dma_te) &&
+        json_u32_field(json, "dme", &dma_dme) &&
+        json_u32_field(json, "fe", &dma_fe) &&
+        json_u32_field(json, "flg", &dma_flags) &&
+        json_u32_field(json, "rxd", &rx_dropped) &&
+        json_u32_field(json, "gv", &gvret_client) &&
+        json_u32_field(json, "sent", &gvret_sent) &&
+        json_u32_field(json, "drop", &gvret_dropped) &&
+        json_u32_field(json, "dbc", &dbc_messages);
+    if (!parsed) {
+        stm32_diag_parse_failures++;
+        Serial.printf("[PIPE-DIAG] parse failed len=%lu: %s\n",
+                      (unsigned long)stm32_diag_last_length, json.c_str());
+        return;
+    }
+    stm32_uart_tx_dropped = tx_dropped;
+    stm32_uart_tx_dma_errors = dma_errors;
+    stm32_uart_dma_te = dma_te;
+    stm32_uart_dma_dme = dma_dme;
+    stm32_uart_dma_fe = dma_fe;
+    stm32_uart_dma_last_flags = dma_flags;
+    stm32_uart_rx_dropped = rx_dropped;
+    stm32_gvret_frames_sent = gvret_sent;
+    stm32_gvret_frames_dropped = gvret_dropped;
+    stm32_dbc_messages = dbc_messages;
+    stm32_gvret_client = gvret_client != 0u;
+    stm32_diag_last_ms = millis();
+    stm32_diag_seen = true;
+}
+
+static char log_buffer[8192];
+static size_t log_buffer_len = 0;
+static uint32_t log_last_flush = 0;
 static File     log_file;
 static bool     spiffs_ok     = false;
 static bool     flashing_stm  = false;    /* true during firmware upload */
@@ -98,16 +216,50 @@ static void handle_connecttest(AsyncWebServerRequest *req) {
  * ══════════════════════════════════════════════════════════════════════ */
 static void on_ws_proxy_event(AsyncWebSocket *, AsyncWebSocketClient *client,
                               AwsEventType type, void *arg, uint8_t *data, size_t len) {
+    const uint32_t client_id = client ? client->id() : UINT32_MAX;
     if (type == WS_EVT_CONNECT) {
-        Serial.printf("[WS] client #%u connected\n", client->id());
+        const int slot = ws_client_slot_allocate(client_id);
+        if (slot < 0) {
+            Serial.printf("[WS] client #%u rejected: bridge slots full\n", client_id);
+            if (client) client->close();
+            return;
+        }
+        Serial.printf("[WS] client #%u connected in slot %d\n", client_id, slot);
+        if (ws_proxy_clients < WS_PROXY_CLIENTS) ws_proxy_clients++;
+        if (ws_proxy_clients == 1u) {
+            Serial2.println("WS,CONNECT");
+            ws_last_connect_heartbeat = millis();
+        }
     } else if (type == WS_EVT_DISCONNECT) {
-        Serial.printf("[WS] client #%u disconnected\n", client->id());
-    } else if (type == WS_EVT_DATA) {
+        const int slot = ws_client_slot(client_id);
+        Serial.printf("[WS] client #%u disconnected\n", client_id);
+        if (slot >= 0) {
+            ws_command_active[slot] = false;
+            ws_command_total[slot] = 0u;
+            ws_client_ids[slot] = UINT32_MAX;
+            if (ws_proxy_clients > 0u) ws_proxy_clients--;
+        }
+        if (ws_proxy_clients == 0u) Serial2.println("WS,DISCONNECT");
+    } else if (type == WS_EVT_DATA && !flashing_stm) {
+        const int slot = ws_client_slot(client_id);
+        if (slot < 0) return;
         AwsFrameInfo *info = (AwsFrameInfo *)arg;
-        if (info->opcode == WS_TEXT && !flashing_stm) {
-            /* Browser → STM: forward command over UART */
-            Serial2.write(data, len);
+        if (!info || info->opcode != WS_TEXT || info->len > WS_COMMAND_MAX ||
+            info->index + len > info->len) {
+            ws_command_active[slot] = false;
+            return;
+        }
+        if (info->index == 0u) {
+            ws_command_total[slot] = (uint16_t)info->len;
+            ws_command_active[slot] = true;
+        }
+        if (!ws_command_active[slot] || ws_command_total[slot] != info->len) return;
+        memcpy(ws_command[slot] + info->index, data, len);
+        if (info->final && info->index + len == info->len) {
+            Serial2.write((const uint8_t *)ws_command[slot], ws_command_total[slot]);
             Serial2.write('\n');
+            ws_command_active[slot] = false;
+            ws_command_total[slot] = 0u;
         }
     }
 }
@@ -116,11 +268,29 @@ static void on_ws_proxy_event(AsyncWebSocket *, AsyncWebSocketClient *client,
  *  ESP-5: SPIFFS circular log (kept from original — no changes)
  * ══════════════════════════════════════════════════════════════════════ */
 static void log_line(const String &line) {
-    if (!spiffs_ok) return;
+    if (!spiffs_ok || line.length() == 0u) return;
+    const size_t n = line.length();
+    if (n + 1u > sizeof log_buffer - log_buffer_len) {
+        log_dropped_lines++;
+        return; /* logging is lossy by design; never stall the live UART path */
+    }
+    memcpy(log_buffer + log_buffer_len, line.c_str(), n);
+    log_buffer_len += n;
+    log_buffer[log_buffer_len++] = '\n';
+}
+
+static void log_flush(void) {
+    if (!spiffs_ok || log_buffer_len == 0u || millis() - log_last_flush < 1000u) return;
+    log_last_flush = millis();
     if (!log_file) log_file = SPIFFS.open(LOG_PATH, FILE_APPEND);
     if (!log_file) return;
-    log_file.println(line);
-    log_file.flush();
+    const size_t written = log_file.write((const uint8_t *)log_buffer, log_buffer_len);
+    if (written > 0u) {
+        log_file.flush();
+        if (written < log_buffer_len)
+            memmove(log_buffer, log_buffer + written, log_buffer_len - written);
+        log_buffer_len -= written;
+    }
     if ((size_t)log_file.size() > LOG_MAX) {
         log_file.close();
         SPIFFS.remove(LOG_PATH);
@@ -172,6 +342,7 @@ static bool bl_enter(void) {
     /* Reconfigure UART to bootloader baud */
     Serial2.end();
     delay(10);
+    Serial2.setRxBufferSize(UART_RX_BUFFER_SIZE);
     Serial2.begin(BOOT_BAUD, SERIAL_8E1, UART_RX_PIN, UART_TX_PIN);
     delay(10);
 
@@ -207,7 +378,9 @@ static void bl_exit(void) {
     digitalWrite(PIN_NRST, HIGH);
     delay(200);
     /* Restore normal UART */
+    Serial2.setRxBufferSize(UART_RX_BUFFER_SIZE);
     Serial2.begin(UART_BAUD, SERIAL_8N1, UART_RX_PIN, UART_TX_PIN);
+    if (ws_proxy_clients > 0u) Serial2.println("WS,CONNECT");
     Serial.println("[FW] STM32 reset to normal boot");
 }
 
@@ -375,10 +548,12 @@ void setup() {
                       SPIFFS.exists(DASH_GZ_PATH) ? "yes" : "no");
     }
 
-    /* UART2 to STM */
+    /* UART2 to STM — reserve enough RX space for a full JSON batch at 2 Mbaud. */
+    uart_line.reserve(UART_LINE_MAX);
+    Serial2.setRxBufferSize(UART_RX_BUFFER_SIZE);
     Serial2.begin(UART_BAUD, SERIAL_8N1, UART_RX_PIN, UART_TX_PIN);
-    Serial.printf("[UART] RX=GPIO%d TX=GPIO%d baud=%ld\n",
-                  UART_RX_PIN, UART_TX_PIN, UART_BAUD);
+    Serial.printf("[UART] RX=GPIO%d TX=GPIO%d baud=%ld rxbuf=%u\n",
+                  UART_RX_PIN, UART_TX_PIN, UART_BAUD, (unsigned)UART_RX_BUFFER_SIZE);
 
     /* Wi-Fi AP */
     WiFi.mode(WIFI_AP);
@@ -544,13 +719,36 @@ void setup() {
     /* Captive portal detection URLs — return proper success responses
        so OS keeps WiFi connected instead of dropping it */
     /* Android */
-    /* Debug endpoint — hit /debug in browser to check UART + WS state */
+    /* Single diagnostics endpoint for the complete UART → WebSocket pipeline. */
     http_server.on("/debug", HTTP_GET, [](AsyncWebServerRequest *req){
-        String s = "{\"uart_rx_bytes\":"; s += uart_rx_bytes;
+        String s = "{\"uart_rx_bytes\":"; s += (unsigned long)uart_rx_bytes;
+        s += ",\"uart_rx_lines\":"; s += (unsigned long)uart_rx_lines;
+        s += ",\"uart_json_lines\":"; s += (unsigned long)uart_json_lines;
+        s += ",\"uart_ignored_lines\":"; s += (unsigned long)uart_ignored_lines;
+        s += ",\"uart_line_overflows\":"; s += (unsigned long)uart_line_overflows;
         s += ",\"ws_clients\":"; s += ws_proxy.count();
-        s += ",\"uptime_s\":"; s += (unsigned long)(millis()/1000);
+        s += ",\"stm32_diag_seen\":"; s += stm32_diag_seen ? "true" : "false";
+        s += ",\"stm32_diag_age_s\":"; s += stm32_diag_seen ? (long)((millis()-stm32_diag_last_ms)/1000u) : -1L;
+        s += ",\"stm32_diag_records\":"; s += stm32_diag_records;
+        s += ",\"stm32_diag_parse_failures\":"; s += stm32_diag_parse_failures;
+        s += ",\"stm32_uart_tx_dropped\":"; s += stm32_uart_tx_dropped;
+        s += ",\"stm32_uart_tx_dma_errors\":"; s += stm32_uart_tx_dma_errors;
+        s += ",\"stm32_uart_dma_te\":"; s += stm32_uart_dma_te;
+        s += ",\"stm32_uart_dma_dme\":"; s += stm32_uart_dma_dme;
+        s += ",\"stm32_uart_dma_fe\":"; s += stm32_uart_dma_fe;
+        s += ",\"stm32_uart_dma_last_flags\":"; s += stm32_uart_dma_last_flags;
+        s += ",\"stm32_uart_rx_dropped\":"; s += stm32_uart_rx_dropped;
+        s += ",\"gvret_client\":"; s += stm32_gvret_client ? "true" : "false";
+        s += ",\"gvret_frames_sent\":"; s += stm32_gvret_frames_sent;
+        s += ",\"gvret_frames_dropped\":"; s += stm32_gvret_frames_dropped;
+        s += ",\"dbc_messages\":"; s += stm32_dbc_messages;
+        s += ",\"uptime_s\":"; s += (unsigned long)(millis()/1000u);
         s += ",\"heap\":"; s += ESP.getFreeHeap();
         s += ",\"wifi_clients\":"; s += WiFi.softAPgetStationNum();
+        s += ",\"log_dropped_lines\":"; s += (unsigned long)log_dropped_lines;
+        s += ",\"log_buffered_bytes\":"; s += (unsigned long)log_buffer_len;
+        s += ",\"spiffs_ok\":"; s += spiffs_ok ? "true" : "false";
+        s += ",\"flashing_stm\":"; s += flashing_stm ? "true" : "false";
         s += "}";
         req->send(200, "application/json", s);
     });
@@ -574,6 +772,15 @@ void setup() {
     http_server.on("/bridge/status", HTTP_GET, [](AsyncWebServerRequest *req){
         String s = "{\"uptime_s\":"; s += millis()/1000;
         s += ",\"uart_rx_bytes\":"; s += uart_rx_bytes;
+        s += ",\"stm32_diag_seen\":"; s += stm32_diag_seen ? "true" : "false";
+        s += ",\"stm32_uart_tx_dropped\":"; s += stm32_uart_tx_dropped;
+        s += ",\"stm32_uart_tx_dma_errors\":"; s += stm32_uart_tx_dma_errors;
+        s += ",\"stm32_uart_dma_te\":"; s += stm32_uart_dma_te;
+        s += ",\"stm32_uart_dma_dme\":"; s += stm32_uart_dma_dme;
+        s += ",\"stm32_uart_dma_fe\":"; s += stm32_uart_dma_fe;
+        s += ",\"stm32_uart_dma_last_flags\":"; s += stm32_uart_dma_last_flags;
+        s += ",\"stm32_uart_rx_dropped\":"; s += stm32_uart_rx_dropped;
+        s += ",\"gvret_frames_dropped\":"; s += stm32_gvret_frames_dropped;
         s += ",\"ap_clients\":"; s += WiFi.softAPgetStationNum();
         s += ",\"spiffs_ok\":"; s += spiffs_ok ? "true" : "false";
         s += ",\"flashing\":"; s += flashing_stm ? "true" : "false";
@@ -608,50 +815,91 @@ void setup() {
 /* ══════════════════════════════════════════════════════════════════════
  *  loop
  * ══════════════════════════════════════════════════════════════════════ */
-static String uart_line;
-
 void loop() {
     dns.processNextRequest();
     ws_proxy.cleanupClients();
 
     if (!flashing_stm) {
-        /* ── STM → ESP: forward to WS clients + log ──────────────── */
+        /* Re-announce the virtual WS peer after an STM32 reset. STM ignores
+           duplicate CONNECT markers while its virtual peer is already active. */
+        if (ws_proxy_clients > 0u && millis() - ws_last_connect_heartbeat >= 5000u) {
+            Serial2.println("WS,CONNECT");
+            ws_last_connect_heartbeat = millis();
+        }
+
+        /* STM → ESP: only JSON is a dashboard message. Raw CSV/status lines
+           remain available to the wired USB serial bridge but are not sent to
+           a browser whose message contract is JSON. */
         while (Serial2.available()) {
-            char c = (char)Serial2.read();
+            const int value = Serial2.read();
+            if (value < 0) break;
+            const char c = (char)value;
             uart_rx_bytes++;
 
             if (c == '\n') {
-                uart_line.trim();
-                if (uart_line.length() > 0) {
-                    /* Forward to all WS proxy clients on port 81 */
-                    ws_proxy.textAll(uart_line);
-                    /* Log to SPIFFS */
-                    log_line(uart_line);
+                uart_rx_lines++;
+                if (!uart_line_overflow) {
+                    uart_line.trim();
+                    if (uart_line.length() > 0u && uart_line[0] == '{' &&
+                        uart_line[uart_line.length() - 1u] == '}') {
+                        update_pipeline_diag(uart_line);
+                        if (ws_proxy_clients > 0u) ws_proxy.textAll(uart_line);
+                        uart_json_lines++;
+                        log_line(uart_line);
+                    } else if (uart_line.length() > 0u) {
+                        uart_ignored_lines++;
+                    }
                 }
                 uart_line = "";
-            } else if (c != '\r') {
-                uart_line += c;
+                uart_line_overflow = false;
+            } else if (c != '\r' && !uart_line_overflow) {
+                if (uart_line.length() < UART_LINE_MAX - 1u) {
+                    uart_line += c;
+                } else {
+                    uart_line = "";
+                    uart_line_overflow = true;
+                    uart_line_overflows++;
+                }
             }
         }
 
-        /* ── ESP-6: USB-serial bridge ─────────────────────────────── */
-        /* Laptop USB → ESP Serial → Serial2 → STM UART */
+        /* Laptop USB → ESP Serial → Serial2 → STM UART. */
         while (Serial.available()) {
-            char c = (char)Serial.read();
+            const char c = (char)Serial.read();
             Serial2.write((uint8_t)c);
         }
-        /* STM UART responses already forwarded above via Serial2.
-           But we also echo raw UART to USB serial for direct wired access: */
+        log_flush();
     }
 
-    /* Periodic status */
     static uint32_t last_print = 0;
-    if (millis() - last_print > 10000) {
+    if (millis() - last_print > 10000u) {
         last_print = millis();
-        Serial.printf("[ST-CAN] clients=%d uart_rx=%lu ws=%d up=%lus\n",
+        Serial.printf("[ST-CAN] clients=%d uart_rx=%lu lines=%lu json=%lu ignored=%lu overflow=%lu ws=%u log_drop=%lu up=%lus\n",
                       WiFi.softAPgetStationNum(),
                       (unsigned long)uart_rx_bytes,
-                      ws_proxy.count(),
-                      (unsigned long)(millis()/1000));
+                      (unsigned long)uart_rx_lines,
+                      (unsigned long)uart_json_lines,
+                      (unsigned long)uart_ignored_lines,
+                      (unsigned long)uart_line_overflows,
+                      (unsigned)ws_proxy_clients,
+                      (unsigned long)log_dropped_lines,
+                      (unsigned long)(millis()/1000u));
+        Serial.printf("[PIPE] seen=%u records=%lu parse_fail=%lu len=%lu tx_drop=%lu dma=%lu\n",
+                      (unsigned)stm32_diag_seen,
+                      (unsigned long)stm32_diag_records,
+                      (unsigned long)stm32_diag_parse_failures,
+                      (unsigned long)stm32_diag_last_length,
+                      (unsigned long)stm32_uart_tx_dropped,
+                      (unsigned long)stm32_uart_tx_dma_errors);
+        Serial.printf("[PIPE-DMA] TE=%lu DME=%lu FE=%lu flags=0x%08lx rx_drop=%lu gvret=%u sent=%lu drop=%lu dbc=%lu\n",
+                      (unsigned long)stm32_uart_dma_te,
+                      (unsigned long)stm32_uart_dma_dme,
+                      (unsigned long)stm32_uart_dma_fe,
+                      (unsigned long)stm32_uart_dma_last_flags,
+                      (unsigned long)stm32_uart_rx_dropped,
+                      (unsigned)stm32_gvret_client,
+                      (unsigned long)stm32_gvret_frames_sent,
+                      (unsigned long)stm32_gvret_frames_dropped,
+                      (unsigned long)stm32_dbc_messages);
     }
 }

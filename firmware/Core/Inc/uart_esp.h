@@ -1,52 +1,27 @@
-/*
- * uart_esp.h — USART2 output to ESP32 Wi-Fi bridge
- *
- * PA2 = USART2_TX (AF7, open-drain, external 3.3 V pull-up — 3.3 V logic,
- *                  no level shift needed: ESP32 GPIO16 is 3.3 V).
- * PA3 = USART2_RX (AF7, input, no pull — not used yet; reserved for
- *                  future command input from ESP).
- *
- * Baud: PROJECT_HOST_UART_BAUD (default 2 000 000).
- * APB1 clock: 42 MHz → BRR = 42 000 000 / 2 000 000 = 21 (exact).
- *
- * Transmit: polled (no DMA, no interrupt) — called only from main-loop
- * context, same as emit().  Each line is at most 80 bytes; at 2 Mbaud
- * that is 320 µs worst case, well within the 1 ms main-loop budget.
- *
- * Thread/ISR safety: uart_esp_emit() must NOT be called from ISR context.
- * CAN frame output comes from the main loop, so this is satisfied.
- */
+#ifndef UART_ESP_H
+#define UART_ESP_H
 
-#pragma once
-#include <stdint.h>
-#include <stddef.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
-/*
- * uart_esp_init() — call once after clock_init_168mhz(), before main loop.
- * Returns true on success.
- */
+/* USART2 PA2/PA3 ↔ ESP32 GPIO16/GPIO17, 8N1 at 2 Mbaud. */
 bool uart_esp_init(void);
 
-/*
- * uart_esp_emit() — send a NUL-terminated string over USART2.
- * Safe to call with s == NULL or empty string (no-op).
- * Uses DMA TX — returns immediately after queueing (non-blocking).
- * Falls back to polled TX if DMA is busy.
- */
+/* Main-loop producers only. TX is queued atomically and drained by DMA. */
 void uart_esp_emit(const char *s);
+bool uart_esp_emit_line(const char *s, size_t n);
 
-/*
- * uart_esp_emit_line() — send 'n' bytes of 's' plus a trailing '\n' in
- * one DMA transfer.  Used by ws_broadcast_txt() to mirror WS JSON data
- * to the ESP UART bridge so WiFi-connected dashboards receive it.
- */
-void uart_esp_emit_line(const char *s, size_t n);
-
-/*
- * uart_esp_rx_line() — return next complete line from ESP32 (USART2 RX).
- * Returns pointer to internal static buffer, or NULL if no complete line.
- * Call from main loop only. Lines are assembled from ISR ring buffer.
- * The returned pointer is valid until the next call.
- */
+/* Main-loop RX: returns the next complete line or NULL when none is ready. */
 const char *uart_esp_rx_line(void);
+
+/* Monotonic diagnostic counters; reading them does not clear them. */
+uint32_t uart_esp_tx_dropped(void);
+uint32_t uart_esp_tx_dma_errors(void);
+uint32_t uart_esp_tx_dma_transfer_errors(void);
+uint32_t uart_esp_tx_dma_direct_errors(void);
+uint32_t uart_esp_tx_dma_fifo_errors(void);
+uint32_t uart_esp_tx_dma_last_flags(void);
+uint32_t uart_esp_rx_dropped(void);
+
+#endif

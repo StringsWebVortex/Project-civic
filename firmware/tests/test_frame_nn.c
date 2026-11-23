@@ -17,6 +17,10 @@ static const uint8_t B[8] = {0xF0, 0xE0, 0xD0, 0xC0, 0xB0, 0xA0, 0x90, 0x80};
 
 int main(void)
 {
+    fnn_t *global_network = fnn_global();
+    CHECK(global_network != NULL, "global network is lazily initialized");
+    CHECK(fnn_global() == global_network, "global network remains stable after initialization");
+
     /* 1. Learning: alternating A/B periodic payload on one identifier. */
     static fnn_t n;
     fnn_init(&n);

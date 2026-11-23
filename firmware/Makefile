@@ -107,7 +107,7 @@ build/net/%.o: %.c Net/lwipopts.h USB/rndis/usbd_conf.h
 # All firmware source files
 FIRMWARE_SRCS = \
   Core/Src/main.c \
-  Core/Src/uart_esp.c \
+  Core/Src/uart_esp.c Core/Src/uart_tx_queue.c \
   Core/Src/can_frame_queue.c \
   Core/Src/can_frame_format.c \
   Core/Src/can_signal_profiler.c \
@@ -248,6 +248,24 @@ build/test_usb_tx_queue_san: tests/test_usb_tx_queue.c USB/usb_tx_queue.c USB/us
 	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -O1 -g \
 	  -fsanitize=address,undefined -fno-omit-frame-pointer \
 	  -IUSB tests/test_usb_tx_queue.c USB/usb_tx_queue.c -o $@
+
+build/test_uart_tx_queue: tests/test_uart_tx_queue.c Core/Src/uart_tx_queue.c Core/Inc/uart_tx_queue.h
+	mkdir -p build
+	$(HOST_CC) $(HOST_CFLAGS) -ICore/Inc tests/test_uart_tx_queue.c Core/Src/uart_tx_queue.c -o $@
+
+build/test_uart_esp_driver: tests/test_uart_esp_driver.c tests/mocks/stm32f4xx.h Core/Src/uart_esp.c Core/Src/uart_tx_queue.c Core/Inc/uart_esp.h Core/Inc/uart_tx_queue.h
+	mkdir -p build
+	$(HOST_CC) $(HOST_CFLAGS) -Itests/mocks -ICore/Inc tests/test_uart_esp_driver.c Core/Src/uart_esp.c Core/Src/uart_tx_queue.c -o $@
+
+build/test_uart_esp_driver_san: tests/test_uart_esp_driver.c tests/mocks/stm32f4xx.h Core/Src/uart_esp.c Core/Src/uart_tx_queue.c Core/Inc/uart_esp.h Core/Inc/uart_tx_queue.h
+	mkdir -p build
+	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -Itests/mocks -ICore/Inc tests/test_uart_esp_driver.c Core/Src/uart_esp.c Core/Src/uart_tx_queue.c -o $@
+
+build/test_uart_tx_queue_san: tests/test_uart_tx_queue.c Core/Src/uart_tx_queue.c Core/Inc/uart_tx_queue.h
+	mkdir -p build
+	$(HOST_CC) -std=c11 -Wall -Wextra -Werror -pedantic -O1 -g \
+	  -fsanitize=address,undefined -fno-omit-frame-pointer \
+	  -ICore/Inc tests/test_uart_tx_queue.c Core/Src/uart_tx_queue.c -o $@
 
 build/test_remote_start: tests/test_remote_start.c Core/Src/remote_start.c Core/Inc/remote_start.h
 	mkdir -p build
@@ -391,8 +409,8 @@ build/test_ecu_scan_san: tests/test_ecu_scan.c Core/Src/ecu_scan.c Core/Inc/ecu_
 # `make result T=<name>`. Never read the whole result file.
 PYTHON ?= python3
 RECORD = $(PYTHON) tests/testresult.py run
-C_TESTS     = test_id_backup test_sig_learn test_frame_nn test_periph_timing test_can_frame_queue test_obd2_decoder test_can_signal_profiler test_isotp_uds test_ecu_scan test_gvret test_gvret_bridge test_usb_tx_queue test_remote_start test_can_filter test_can_opts test_device_id test_log_mail test_gear_led test_dash_store test_dash_bridge test_web_server test_can_dbc
-SAN_TESTS   = test_id_backup_san test_sig_learn_san test_can_opts_san test_device_id_san test_log_mail_san test_can_frame_queue_san test_obd2_decoder_san test_can_signal_profiler_san test_isotp_uds_san test_ecu_scan_san test_gvret_bridge_san test_usb_tx_queue_san test_gear_led_san test_dash_store_san test_dash_bridge_san test_web_server_san test_can_dbc_san
+C_TESTS     = test_uart_esp_driver test_id_backup test_sig_learn test_frame_nn test_periph_timing test_can_frame_queue test_obd2_decoder test_can_signal_profiler test_isotp_uds test_ecu_scan test_gvret test_gvret_bridge test_usb_tx_queue test_uart_tx_queue test_remote_start test_can_filter test_can_opts test_device_id test_log_mail test_gear_led test_dash_store test_dash_bridge test_web_server test_can_dbc
+SAN_TESTS   = test_uart_esp_driver_san test_id_backup_san test_sig_learn_san test_can_opts_san test_device_id_san test_log_mail_san test_can_frame_queue_san test_obd2_decoder_san test_can_signal_profiler_san test_isotp_uds_san test_ecu_scan_san test_gvret_bridge_san test_usb_tx_queue_san test_uart_tx_queue_san test_gear_led_san test_dash_store_san test_dash_bridge_san test_web_server_san test_can_dbc_san
 
 test-host:
 	@for t in $(C_TESTS); do \
@@ -427,8 +445,8 @@ test-build:
 # ESP32 dashboard firmware built as a recorded test (needs PlatformIO).
 PIO ?= $(shell command -v pio 2>/dev/null || printf '%s/.platformio/penv/bin/pio' "$(HOME)")
 test-esp32:
-	@$(RECORD) build_esp32_dashboard --timeout 600 -- $(PIO) run -d esp32-dashboard || true
-	@echo "test-esp32 finished: run 'make results'"
+	@$(RECORD) build_esp32_bridge --timeout 600 -- sh -c '$(PIO) run -d ../esp32_bridge && $(PIO) run -d ../esp32_bridge -t buildfs' || true
+	@echo "test-esp32 finished: run 'make result T=build_esp32_bridge'"
 
 # On-board self-test over USB (board must be connected and running).
 test-board:

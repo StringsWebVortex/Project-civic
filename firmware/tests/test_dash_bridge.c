@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "dash.h"
+#include "dash_store.h"
+static void get(const char *method, const char *path, const char *query);
 #include "log_mail.h"
 #include "i2c1.h"
 #include "web_server.h"
@@ -35,7 +37,23 @@ static bool has_cmd(const char *s) { for (int i = 0; i < ncmd; i++) if (strcmp(c
 
 /* web_server stubs */
 static uint8_t clients = 1;
-void ws_broadcast_txt(const char *s, size_t n) { if (nmsg < MAXMSG) { memcpy(msgs[nmsg], s, n); msgs[nmsg++][n] = 0; } }
+static bool ws_fail_broadcast;
+static uint32_t test_uart_tx_dropped, test_uart_tx_dma_errors, test_uart_rx_dropped;
+static uint32_t test_uart_dma_te, test_uart_dma_dme, test_uart_dma_fe, test_uart_dma_last;
+uint32_t uart_esp_tx_dropped(void) { return test_uart_tx_dropped; }
+uint32_t uart_esp_tx_dma_errors(void) { return test_uart_tx_dma_errors; }
+uint32_t uart_esp_tx_dma_transfer_errors(void) { return test_uart_dma_te; }
+uint32_t uart_esp_tx_dma_direct_errors(void) { return test_uart_dma_dme; }
+uint32_t uart_esp_tx_dma_fifo_errors(void) { return test_uart_dma_fe; }
+uint32_t uart_esp_tx_dma_last_flags(void) { return test_uart_dma_last; }
+uint32_t uart_esp_rx_dropped(void) { return test_uart_rx_dropped; }
+bool ws_broadcast_txt(const char *s, size_t n)
+{
+    if (ws_fail_broadcast) return false;
+    if (n >= sizeof msgs[0]) return false;
+    if (nmsg < MAXMSG) { memcpy(msgs[nmsg], s, n); msgs[nmsg++][n] = 0; }
+    return true;
+}
 void ws_send_txt(uint8_t num, const char *s, size_t n) { (void)num; ws_broadcast_txt(s, n); }
 bool ws_send_txt_ok(uint8_t num, const char *s, size_t n) { ws_send_txt(num, s, n); return true; }
 uint8_t ws_connected_clients(void) { return clients; }
@@ -53,12 +71,12 @@ bool http_query_get(const http_req_t *r, const char *key, char *out, size_t cap)
 { const char *p = strstr(r->query, key); if (!p) return false; p += strlen(key); if (*p == '=') p++; snprintf(out, cap, "%s", p); return true; }
 
 /* 24LC512 model on the I2C1 bus (address 0x50) */
-static uint8_t ee_mem[65536]; static int ee_present = 1;
+static uint8_t ee_mem[65536]; static int ee_present = 1; static int ee_write_fail;
 bool i2c1_init(void) { return true; }
 uint32_t i2c1_now_ms(void) { return system_millis; }
 bool i2c1_write(uint8_t a, const uint8_t *w1, size_t n1, const uint8_t *w2, size_t n2)
 {
-    if (!ee_present || a != 0x50) return false;
+    if (!ee_present || ee_write_fail || a != 0x50) return false;
     if (n1 + n2 == 0) return true;
     const unsigned at = (unsigned)(w1[0] << 8 | w1[1]);
     for (size_t i = 0; i < n2; i++) ee_mem[(at & ~127u) | ((at + i) & 127u)] = w2[i];
@@ -77,9 +95,11 @@ static struct tcp_pcb pcbs[64]; static int npcb;
 static tcp_accept_fn accept_fn[65536];
 static uint16_t last_bind;
 static uint8_t gv_out[4096]; static size_t gv_len; static struct tcp_pcb *gv_pcb;
-u16_t tcp_sndbuf(struct tcp_pcb *pcb) { (void)pcb; return 8000; }
+static u16_t gv_sndbuf = 8000u;
+static err_t gv_write_result = ERR_OK;
+u16_t tcp_sndbuf(struct tcp_pcb *pcb) { (void)pcb; return gv_sndbuf; }
 err_t tcp_write(struct tcp_pcb *pcb, const void *data, u16_t len, u8_t flags)
-{ (void)flags; if (pcb == gv_pcb && gv_len + len < sizeof gv_out) { memcpy(gv_out + gv_len, data, len); gv_len += len; } return ERR_OK; }
+{ (void)flags; if (gv_write_result != ERR_OK) return gv_write_result; if (pcb == gv_pcb && gv_len + len < sizeof gv_out) { memcpy(gv_out + gv_len, data, len); gv_len += len; } return ERR_OK; }
 err_t tcp_output(struct tcp_pcb *pcb) { (void)pcb; return ERR_OK; }
 void  tcp_arg(struct tcp_pcb *pcb, void *arg) { (void)pcb; (void)arg; }
 static tcp_recv_fn recv_fn[64];
@@ -152,6 +172,30 @@ static void test_frames_and_gvret(void)
     struct pbuf p = { NULL, pkt, sizeof pkt, sizeof pkt };
     recv_fn[gv_pcb->id](NULL, gv_pcb, &p, ERR_OK);
     CHECK(ncmd == 1 && strncmp(cmds[0], "TX,F,S,123,0,2,AABB", 19) == 0, "GVRET send -> TX command");
+
+
+}
+
+static void test_uart_batch_retry(void)
+{
+    clear();
+    dash_on_line("300000,STD,124,8,0,0102030405060708,0\n");
+    ws_fail_broadcast = true;
+    tick(600);
+    ws_fail_broadcast = false;
+    clear();
+    tick(600);
+    CHECK(msg_contains("[\"124\",0,8,\"0102030405060708\""),
+          "frame batch remains dirty and retries after UART queue backpressure");
+    clear();
+    dash_on_line("300001,STD,17C,8,0,400002EE80000000,0\n");
+    ws_fail_broadcast = true;
+    tick(600);
+    ws_fail_broadcast = false;
+    clear();
+    tick(600);
+    CHECK(msg_contains("{\"type\":\"dec\",\"l\":[") &&
+          msg_contains("ENGINE_RPM"), "decoded batch retries after UART queue backpressure");
 }
 
 static void test_dec_batch(void)
@@ -167,6 +211,14 @@ static void test_dec_batch(void)
     CHECK(!msg_contains("CHECKSUM") && !msg_contains("COUNTER"), "counter/checksum fields skipped");
     clear(); tick(600);
     CHECK(!msg_contains("\"type\":\"dec\""), "unchanged frames are not re-sent");
+
+    clear();
+    dash_on_line("200002,STD,17C,8,0,400002EE80000000,1\n");
+    dash_on_line("200003,EXT,18DAF10E,8,0,0102030405060708,0\n");
+    dash_on_line("200004,STD,123,8,0,0102030405060708,0\n");
+    tick(600);
+    CHECK(!msg_contains("\"type\":\"dec\""),
+          "B-CAN, extended frames and undefined standard IDs remain raw-only in DBC decoding");
     clear(); dash_on_line("GEAR,BCAST,2,3,UP\r\n");
     CHECK(has_msg("{\"type\":\"diag\",\"message\":\"GEAR,BCAST,2,3,UP\"}"), "broadcast gear ack reaches the page log");
 }
@@ -220,6 +272,83 @@ static void test_ws_commands(void)
     clear(); ws("{\"op\":\"startframe\",\"bus\":\"F\",\"format\":\"S\",\"id\":\"1a0\",\"dlc\":1,\"data\":\"01\"}");
     CHECK(has_cmd("STARTFRAME,F,S,1A0,1,01"), "startframe");
     clear(); ws("not json");                                   CHECK(ncmd == 0, "garbage ignored");
+}
+
+static void test_frame_table_overflow_gvret(void)
+{
+    dash_test_reset_frame_table();
+    gv_len = 0u;
+    char line[96];
+    for (unsigned id = 0x200u; id < 0x200u + 192u; id++) {
+        (void)snprintf(line, sizeof line, "123458,STD,%03X,1,0,AA,0\n", id);
+        dash_on_line(line);
+    }
+    const size_t raw_before = gv_len;
+    (void)snprintf(line, sizeof line, "123459,STD,2C0,1,0,BB,0\n");
+    dash_on_line(line);
+    CHECK(gv_len > raw_before, "GVRET raw stream still carries a frame rejected by the full dashboard table");
+    tick(300);
+    CHECK(msg_contains("\"over\":1"), "193rd distinct frame increments dashboard table overflow");
+
+    gv_sndbuf = 0u;
+    (void)snprintf(line, sizeof line, "123460,STD,2C1,1,0,CC,0\n");
+    dash_on_line(line);
+    gv_sndbuf = 8000u;
+    clear();
+    tick(1100);
+    CHECK(msg_contains("\"sent\":193"), "GVRET accepted all 193 frames before the forced backpressure event");
+    CHECK(msg_contains("\"drop\":1"), "GVRET TCP backpressure is exposed in pipeline diagnostics");
+    CHECK(msg_contains("\"gv\":1"), "pipeline diagnostics identify the active GVRET client");
+}
+
+static void test_pipeline_diagnostics(void)
+{
+    test_uart_tx_dropped = 7u;
+    test_uart_tx_dma_errors = 2u;
+    test_uart_dma_te = 1u;
+    test_uart_dma_dme = 1u;
+    test_uart_dma_fe = 0u;
+    test_uart_dma_last = 0x000C0000u;
+    test_uart_rx_dropped = 3u;
+    clear();
+    tick(1100);
+    CHECK(msg_contains("\"type\":\"pipeline_diag\""), "pipeline diagnostics message is emitted periodically");
+    CHECK(msg_contains("\"txd\":7"), "STM32 UART TX queue drops are exposed");
+    CHECK(msg_contains("\"dma\":2"), "STM32 UART DMA errors are exposed");
+    CHECK(msg_contains("\"te\":1"), "STM32 DMA transfer errors are separated");
+    CHECK(msg_contains("\"dme\":1"), "STM32 DMA direct-mode errors are separated");
+    CHECK(msg_contains("\"flg\":786432"), "last DMA error flags are exposed");
+    CHECK(msg_contains("\"rxd\":3"), "STM32 UART RX drops are exposed");
+    CHECK(msg_contains("\"dbc\":"), "DBC definition count is included in diagnostics");
+
+    test_uart_tx_dropped = UINT32_MAX;
+    test_uart_tx_dma_errors = UINT32_MAX;
+    test_uart_dma_te = UINT32_MAX;
+    test_uart_dma_dme = UINT32_MAX;
+    test_uart_dma_fe = UINT32_MAX;
+    test_uart_dma_last = UINT32_MAX;
+    test_uart_rx_dropped = UINT32_MAX;
+    clear();
+    tick(1100);
+    CHECK(msg_contains("\"flg\":4294967295"),
+          "maximum-width UART counters fit in the pipeline diagnostics payload");
+}
+
+static void test_uart_bridge_peer(void)
+{
+    clear();
+    dash_bridge_connected();
+    CHECK(msg_contains("\"type\":\"status\""), "virtual UART peer receives initial status");
+    clear();
+    const char *command = "{\"op\":\"write\",\"on\":true}";
+    dash_bridge_text((char *)command, strlen(command));
+    CHECK(has_cmd("WRITE,ON"), "UART bridge JSON command uses dashboard command parser");
+    clear();
+    dash_ws_disconnected(0);
+    CHECK(ncmd == 0, "direct peer disconnect does not disarm while bridge peer remains");
+    dash_bridge_disconnected();
+    CHECK(has_cmd("DISARM,F") && has_cmd("DISARM,B"), "last virtual peer disconnect disarms both buses");
+    dash_ws_connected(0);
 }
 
 static void test_dtc_journal(void)
@@ -278,6 +407,11 @@ static void test_log_http_and_disarm(void)
     CHECK(http_status == 404 && strcmp(http_body, "no log yet") == 0, "no log after clear");
     strcpy(r.path, "/token"); dash_http_request(NULL, &r);
     CHECK(http_status == 200 && strlen(http_body) == 24, "token is 24 chars");
+    get("GET", "/generate_204", "");
+    CHECK(http_status == 302 && strstr(http_body, "Redirecting") != NULL,
+          "captive portal connectivity check redirects to the dashboard");
+    get("GET", "/ncsi.txt", "");
+    CHECK(http_status == 302, "second captive portal probe redirects to the dashboard");
     strcpy(r.path, "/"); dash_http_request(NULL, &r);
     CHECK(http_status == 200 && (uint8_t)http_body[0] == 0x1f, "GET / serves the gzip page");
     clear(); dash_ws_disconnected(0);
@@ -425,6 +559,119 @@ static void test_event_capacity_and_compaction(void)
     CHECK(dash_init(cmd_cb, NULL, NULL), "re-init after compaction");
     dash_ws_connected(0); tick(100);
     CHECK(msg_contains("\"type\":\"event\""), "events replayed after compaction");
+    const uint32_t delete_id = dash_test_latest_event_id();
+    CHECK(delete_id != 0u && evst_append(EV_REC_EVENT_DEL, delete_id, NULL, 0u),
+          "event deletion record appended");
+    clear(); CHECK(dash_init(cmd_cb, NULL, NULL), "re-init with event deletion record");
+    dash_ws_connected(0); tick(100);
+    char deleted_id[32]; snprintf(deleted_id, sizeof deleted_id, "\"id\":%lu,", (unsigned long)delete_id);
+    CHECK(!msg_contains(deleted_id), "deleted event is removed during journal replay");
+}
+
+static void test_label_paths_and_replay(void)
+{
+    clear();
+    ws("{\"op\":\"set_label\",\"id\":\"158\",\"label\":\"ENGINE_CUSTOM\"}");
+    CHECK(msg_contains("label_update") && msg_contains("ENGINE_CUSTOM"),
+          "dashboard set_label command updates the frame label");
+    clear();
+    dash_on_line("LABEL,158,CSV_CUSTOM\r\n");
+    CHECK(msg_contains("label_update") && msg_contains("CSV_CUSTOM"),
+          "UART LABEL line updates the frame label");
+
+    clear();
+    CHECK(dash_init(cmd_cb, NULL, NULL), "label journal replay init");
+    dash_ws_connected(0);
+    CHECK(msg_contains("label_update") && msg_contains("CSV_CUSTOM"),
+          "saved label is replayed before the first CAN frame");
+    dash_on_line("300100,STD,158,8,0,000005DC00000000,0\n");
+    tick(300);
+    CHECK(msg_contains("[\"158\",0,8,\"000005DC00000000\"" ) &&
+          msg_contains("CSV_CUSTOM"), "first post-reboot frame inherits its saved label");
+
+    static const char pending_label[] = "PLACEHOLDER";
+    CHECK(evst_append(EV_REC_LABEL, 0x6AAu, pending_label, sizeof pending_label),
+          "persist a label before its CAN identifier has been observed");
+    clear(); CHECK(dash_init(cmd_cb, NULL, NULL), "replay pending label");
+    dash_on_line("300101,STD,6AA,8,0,0102030405060708,1\n");
+    tick(300);
+    CHECK(msg_contains("PLACEHOLDER") && msg_contains("[\"6AA\",1,8,"),
+          "replayed placeholder label attaches to the first matching bus-1 frame");
+}
+
+static void test_snapshot_completion_save_failure(void)
+{
+    clear();
+    dtc(401);
+    tick(100);
+    const uint32_t id = dash_test_latest_event_id();
+    CHECK(id != 0u, "test event created for snapshot failure");
+    dash_test_fail_save_events(true);
+    for (unsigned sample = 0; sample < 20u; sample++) dash_test_capture_post_event_sample();
+    dash_test_fail_save_events(false);
+    CHECK(!dash_test_snapshot_ready(id), "snapshot completion metadata failure leaves the snapshot incomplete");
+}
+
+static void test_snapshot_limit_backpressure(void)
+{
+    fake_flash_reset();
+    CHECK(dash_init(cmd_cb, NULL, NULL), "isolated snapshot-limit journal init");
+    dash_ws_connected(0);
+    uint32_t first_id = 0u;
+    for (unsigned i = 0; i < 8u; i++) {
+        dtc(500u + i);
+        tick(50);
+        const uint32_t id = dash_test_latest_event_id();
+        CHECK(id != 0u, "snapshot-capacity event created");
+        if (i == 0u) first_id = id;
+        for (unsigned sample = 0; sample < 20u; sample++) dash_test_capture_post_event_sample();
+        CHECK(dash_test_snapshot_ready(id), "post-event samples complete the snapshot");
+    }
+
+    char seen[64]; snprintf(seen, sizeof seen, "{\"op\":\"event_seen\",\"id\":%lu}", (unsigned long)first_id);
+    ws(seen);
+    dtc(508u); tick(50);
+    uint32_t ninth_id = dash_test_latest_event_id();
+    for (unsigned sample = 0; sample < 20u; sample++) dash_test_capture_post_event_sample();
+    CHECK(dash_test_snapshot_ready(ninth_id), "one seen snapshot is evicted to admit a new capture");
+    CHECK(!dash_test_snapshot_ready(first_id), "oldest seen snapshot is released at the configured limit");
+
+    dtc(509u); tick(50);
+    const uint32_t tenth_id = dash_test_latest_event_id();
+    CHECK(!dash_test_snapshot_ready(tenth_id), "capture is refused when all retained snapshots are unseen");
+}
+
+static void test_backup_write_failure(void)
+{
+    ee_present = 1;
+    ee_write_fail = 0;
+    CHECK(dash_init(cmd_cb, NULL, NULL), "reinitialize present EEPROM before failure test");
+    ee_write_fail = 1;
+    for (unsigned attempt = 0; attempt < 3u; attempt++) {
+        clear();
+        dash_identity_changed();
+        dash_test_run_backup_service();
+        CHECK(msg_contains("BACKUP,ERR,WRITE_FAILED"), "EEPROM write failure is reported");
+    }
+    CHECK(msg_contains("BACKUP,STATUS,ABSENT"), "three EEPROM failures disable backup until reboot");
+    ee_write_fail = 0;
+}
+
+static void test_event_compaction_rewrite_failure(void)
+{
+    ee_present = 0;
+    fake_flash_reset();
+    CHECK(dash_init(cmd_cb, NULL, NULL), "isolated journal init");
+    dtc(400);
+    tick(100);
+    CHECK(dash_test_latest_event_id() != 0u, "event exists before journal compaction");
+    dash_test_fail_event_rewrite(true);
+    CHECK(!evst_compact(), "compaction aborts when an event record cannot be rewritten");
+    dash_test_fail_event_rewrite(false);
+    CHECK(dash_init(cmd_cb, NULL, NULL), "old journal remains bootable after interrupted compaction");
+    dash_ws_connected(0);
+    CHECK(msg_contains("\"type\":\"event\""), "event data survives interrupted compaction");
+    ee_present = 1;
 }
 
 static void test_mail_at_70_percent(void)
@@ -522,8 +769,11 @@ int main(void)
     test_status_lines();
     test_pid_profile_sig();
     test_frames_and_gvret();
+    test_uart_batch_retry();
     test_dec_batch();
     test_ws_commands();
+    test_uart_bridge_peer();
+    test_pipeline_diagnostics();
     test_dtc_journal();
     test_reboot_persistence();
     test_log_http_and_disarm();
@@ -533,7 +783,13 @@ int main(void)
     test_mail_http();
     test_event_capacity_and_compaction();
     test_signal_learning();
+    test_label_paths_and_replay();
+    test_snapshot_completion_save_failure();
     test_mail_at_70_percent();
+    test_snapshot_limit_backpressure();
+    test_backup_write_failure();
+    test_event_compaction_rewrite_failure();
+    test_frame_table_overflow_gvret();
     test_upload_paths();             /* last: a valid image schedules the apply/reset */
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("test_dash_bridge: all checks passed\n");

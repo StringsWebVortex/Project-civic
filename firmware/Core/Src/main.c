@@ -1532,7 +1532,15 @@ int main(void)
         /* Poll UART RX from ESP32 — feed received lines into dashboard parser */
         {   const char *esp_line;
             while ((esp_line = uart_esp_rx_line()) != NULL) {
-                dash_on_line(esp_line);
+                if (strcmp(esp_line, "WS,CONNECT") == 0) {
+                    dash_bridge_connected();
+                } else if (strcmp(esp_line, "WS,DISCONNECT") == 0) {
+                    dash_bridge_disconnected();
+                } else if (esp_line[0] == '{') {
+                    dash_bridge_text((char *)esp_line, strlen(esp_line));
+                } else {
+                    dash_on_line(esp_line);
+                }
             }
         }
 #endif

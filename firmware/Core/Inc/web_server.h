@@ -6,8 +6,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define WS_MAX_CLIENTS   4u
-#define WS_MAX_MESSAGE   1400u   /* same cap the ESP32 dashboard enforced */
+#define WS_DIRECT_CLIENTS 3u
+#define WS_BRIDGE_CLIENT  3u  /* virtual WebSocket peer carried over USART2 */
+#define WS_MAX_CLIENTS    4u  /* three TCP peers plus the UART bridge peer */
+#define WS_MAX_MESSAGE    1400u   /* same cap the ESP32 dashboard enforced */
 
 typedef struct http_conn http_conn_t;
 
@@ -37,7 +39,7 @@ void http_respond_stream(http_conn_t *c, int status, const char *ctype, const ch
 bool http_query_get(const http_req_t *r, const char *key, char *out, size_t cap);
 
 /* WebSocket output */
-void    ws_broadcast_txt(const char *s, size_t n);
+bool    ws_broadcast_txt(const char *s, size_t n);
 void    ws_send_txt(uint8_t num, const char *s, size_t n);
 bool    ws_send_txt_ok(uint8_t num, const char *s, size_t n);  /* false = window full, retry later */
 uint8_t ws_connected_clients(void);

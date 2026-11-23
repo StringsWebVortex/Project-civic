@@ -1,205 +1,230 @@
 /*
- * uart_esp.c — USART2 DMA TX + ISR RX to/from ESP32 Wi-Fi bridge
- *
- * Wiring
- * ------
- *   PA2  USART2_TX  AF7  push-pull  → ESP32 GPIO16 (RX2)
- *   PA3  USART2_RX  AF7  input      ← ESP32 GPIO17 (TX2)
- *   GND  GND                        — common
- *
- * Both sides are 3.3 V; no level shifter needed.
- *
- * Clock math (APB1 = 42 MHz, baud = 2 000 000)
- *   USARTDIV = 42 000 000 / 2 000 000 = 21.000  → exact, no fractional error
- *
- * TX: DMA1 Stream6 Channel4 — non-blocking.  Falls back to polled if DMA busy.
- *     This avoids blocking the main loop during flash erase (scope #13).
- *
- * RX: USART2 RXNE interrupt → ring buffer.  Main loop polls uart_esp_rx_line()
- *     which assembles complete lines from the ring buffer.
+ * USART2 bridge to the ESP32.
+ * PA2 USART2_TX -> ESP32 GPIO16 RX; PA3 USART2_RX <- ESP32 GPIO17 TX.
+ * 8N1 at 2,000,000 baud (APB1 = 42 MHz, BRR = 21).
+ * TX uses a bounded SRAM ring and DMA1 Stream6/Channel4.  The DMA ISR is the
+ * only consumer; main-loop producers commit complete messages atomically.
+ * RX uses USART2 RXNE interrupt and a bounded ring for line-oriented commands.
  */
-
 #include "uart_esp.h"
+#include "uart_tx_queue.h"
 #include "stm32f4xx.h"
 #include <string.h>
 
-/* ── config ──────────────────────────────────────────────────────────────── */
 #ifndef PROJECT_HOST_UART_BAUD
-#define PROJECT_HOST_UART_BAUD  2000000u
+#define PROJECT_HOST_UART_BAUD 2000000u
 #endif
 
-#define UART_APB1_HZ    42000000u
-#define UART_BAUD       PROJECT_HOST_UART_BAUD
+#define UART_APB1_HZ 42000000u
+#define UART_BAUD PROJECT_HOST_UART_BAUD
+#define RX_RING_SIZE 1024u
+#define RX_LINE_SIZE 1401u
 
-/* ── DMA TX buffer ───────────────────────────────────────────────────────── */
-#define TX_BUF_SIZE  2048u
-static char         tx_buf[TX_BUF_SIZE];
-static volatile bool tx_busy = false;
+#define DMA1_S6_TCIF   (1u << 21u)
+#define DMA1_S6_TEIF   (1u << 19u)
+#define DMA1_S6_DMEIF  (1u << 18u)
+#define DMA1_S6_FEIF   (1u << 16u)
+#define DMA1_S6_CLEAR  (0x3Fu << 16u)
+#define DMA1_S6_ERRORS (DMA1_S6_TEIF | DMA1_S6_DMEIF | DMA1_S6_FEIF)
 
-/* ── RX ring buffer (ISR → main loop) ────────────────────────────────────── */
-#define RX_RING_SIZE  1024u
+static uart_tx_queue_t tx_queue; /* DMA-accessible SRAM, never CCMRAM */
+static volatile bool tx_dma_active;
+static volatile uint16_t tx_dma_length;
+static volatile uint32_t tx_dropped;
+static volatile uint32_t tx_dma_errors;
+static volatile uint32_t tx_dma_transfer_errors;
+static volatile uint32_t tx_dma_direct_errors;
+static volatile uint32_t tx_dma_fifo_errors;
+static volatile uint32_t tx_dma_last_flags;
+
 static volatile uint8_t rx_ring[RX_RING_SIZE];
-static volatile uint16_t rx_head;   /* written by ISR */
-static volatile uint16_t rx_tail;   /* read by main loop */
-
-/* Line assembly buffer (main loop only) */
-#define RX_LINE_SIZE  256u
+static volatile uint16_t rx_head;
+static volatile uint16_t rx_tail;
+static volatile uint32_t rx_dropped;
 static char rx_line[RX_LINE_SIZE];
 static uint16_t rx_line_pos;
+static bool rx_line_overflow;
 
-/* ── init ────────────────────────────────────────────────────────────────── */
+static void dma_kick(void)
+{
+    const uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    if (tx_dma_active) {
+        __set_PRIMASK(primask);
+        return;
+    }
+
+    uint16_t length = 0u;
+    uint8_t *data = uart_tx_queue_peek(&tx_queue, &length);
+    if (!data || length == 0u) {
+        __set_PRIMASK(primask);
+        return;
+    }
+
+    DMA1_Stream6->CR &= ~DMA_SxCR_EN;
+    while (DMA1_Stream6->CR & DMA_SxCR_EN) { }
+    DMA1->HIFCR = DMA1_S6_CLEAR;
+    DMA1_Stream6->M0AR = (uint32_t)(uintptr_t)data;
+    DMA1_Stream6->NDTR = length;
+    tx_dma_length = length;
+    tx_dma_active = true;
+    DMA1_Stream6->CR |= DMA_SxCR_EN;
+    __set_PRIMASK(primask);
+}
+
 bool uart_esp_init(void)
 {
-    /* 1. Clock gates */
+    uart_tx_queue_init(&tx_queue);
+    tx_dma_active = false;
+    tx_dma_length = 0u;
+    tx_dropped = 0u;
+    tx_dma_errors = 0u;
+    tx_dma_transfer_errors = 0u;
+    tx_dma_direct_errors = 0u;
+    tx_dma_fifo_errors = 0u;
+    tx_dma_last_flags = 0u;
+    rx_head = rx_tail = 0u;
+    rx_dropped = 0u;
+    rx_line_pos = 0u;
+    rx_line_overflow = false;
+
     RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN | RCC_AHB1ENR_DMA1EN;
     RCC->APB1ENR |= RCC_APB1ENR_USART2EN;
     (void)RCC->APB1ENR;
 
-    /* 2. PA2 → USART2_TX, AF7, push-pull, high speed, no pull */
-    /*    PA3 → USART2_RX, AF7, input,      no pull              */
-    GPIOA->MODER &= ~((3u << (2u*2u)) | (3u << (2u*3u)));
-    GPIOA->MODER |=   (2u << (2u*2u)) | (2u << (2u*3u));
+    GPIOA->MODER &= ~((3u << (2u * 2u)) | (3u << (2u * 3u)));
+    GPIOA->MODER |=   (2u << (2u * 2u)) | (2u << (2u * 3u));
     GPIOA->OTYPER &= ~((1u << 2u) | (1u << 3u));
-    GPIOA->OSPEEDR |= (3u << (2u*2u)) | (3u << (2u*3u));
-    GPIOA->PUPDR &= ~((3u << (2u*2u)) | (3u << (2u*3u)));
-    GPIOA->AFR[0] &= ~((0xFu << (4u*2u)) | (0xFu << (4u*3u)));
-    GPIOA->AFR[0] |=   (7u   << (4u*2u)) | (7u   << (4u*3u));
+    GPIOA->OSPEEDR |= (3u << (2u * 2u)) | (3u << (2u * 3u));
+    GPIOA->PUPDR &= ~((3u << (2u * 2u)) | (3u << (2u * 3u)));
+    GPIOA->AFR[0] &= ~((0xFu << (4u * 2u)) | (0xFu << (4u * 3u)));
+    GPIOA->AFR[0] |=   (7u << (4u * 2u)) | (7u << (4u * 3u));
 
-    /* 3. USART2: 8N1, baud = APB1 / UART_BAUD */
-    USART2->CR1 = 0;
-    USART2->CR2 = 0;
-    USART2->CR3 = 0;
-    uint32_t brr = UART_APB1_HZ / UART_BAUD;
+    USART2->CR1 = 0u;
+    USART2->CR2 = 0u;
+    USART2->CR3 = 0u;
+    const uint32_t brr = UART_APB1_HZ / UART_BAUD;
     if (brr == 0u || brr > 0xFFFFu) return false;
     USART2->BRR = brr;
 
-    /* 4. DMA1 Stream6 Channel4 for USART2_TX */
-    DMA1_Stream6->CR = 0;
-    while (DMA1_Stream6->CR & DMA_SxCR_EN) {}   /* wait disable */
-    DMA1->HIFCR = 0x3Fu << 16u;                 /* clear Stream6 flags */
-    DMA1_Stream6->PAR  = (uint32_t)&USART2->DR;
-    DMA1_Stream6->CR   = (4u << DMA_SxCR_CHSEL_Pos)  /* channel 4 */
-                       | DMA_SxCR_MINC               /* memory increment */
-                       | (1u << DMA_SxCR_DIR_Pos)     /* mem→periph */
-                       | DMA_SxCR_TCIE;               /* transfer complete IRQ */
-    USART2->CR3 |= USART_CR3_DMAT;              /* USART2 DMA TX enable */
-
-    /* 5. Enable USART2 RXNE interrupt for RX */
+    DMA1_Stream6->CR = 0u;
+    while (DMA1_Stream6->CR & DMA_SxCR_EN) { }
+    DMA1->HIFCR = DMA1_S6_CLEAR;
+    DMA1_Stream6->PAR = (uint32_t)(uintptr_t)&USART2->DR;
+    DMA1_Stream6->M0AR = 0u;
+    DMA1_Stream6->NDTR = 0u;
+    DMA1_Stream6->FCR = 0u; /* direct mode */
+    DMA1_Stream6->CR = (4u << DMA_SxCR_CHSEL_Pos) |
+                       DMA_SxCR_MINC |
+                       (1u << DMA_SxCR_DIR_Pos) |
+                       DMA_SxCR_TCIE | DMA_SxCR_TEIE | DMA_SxCR_DMEIE;
+    USART2->CR3 |= USART_CR3_DMAT;
     USART2->CR1 = USART_CR1_TE | USART_CR1_RE | USART_CR1_UE | USART_CR1_RXNEIE;
 
-    /* 6. NVIC: USART2 (IRQ 38) for RX, DMA1_Stream6 (IRQ 17) for TX complete */
-    NVIC_SetPriority(USART2_IRQn, 5);
+    NVIC_SetPriority(USART2_IRQn, 5u);
     NVIC_EnableIRQ(USART2_IRQn);
-    NVIC_SetPriority(DMA1_Stream6_IRQn, 6);
+    NVIC_SetPriority(DMA1_Stream6_IRQn, 6u);
     NVIC_EnableIRQ(DMA1_Stream6_IRQn);
-
     return true;
 }
 
-/* ── DMA TX complete ISR ─────────────────────────────────────────────────── */
 void DMA1_Stream6_IRQHandler(void)
 {
-    DMA1->HIFCR = 0x3Fu << 16u;   /* clear all Stream6 flags */
+    const uint32_t flags = DMA1->HISR;
+    if ((flags & (DMA1_S6_TCIF | DMA1_S6_ERRORS)) == 0u) return;
+
+    DMA1->HIFCR = DMA1_S6_CLEAR;
     DMA1_Stream6->CR &= ~DMA_SxCR_EN;
-    tx_busy = false;
+    while (DMA1_Stream6->CR & DMA_SxCR_EN) { }
+
+    if (tx_dma_active && tx_dma_length != 0u) {
+        /* On an error, discard the failed segment; never splice a retry into it. */
+        const uint32_t errors = flags & DMA1_S6_ERRORS;
+        if (errors != 0u) {
+            tx_dma_errors++;
+            tx_dma_last_flags = errors;
+            if ((errors & DMA1_S6_TEIF) != 0u) tx_dma_transfer_errors++;
+            if ((errors & DMA1_S6_DMEIF) != 0u) tx_dma_direct_errors++;
+            if ((errors & DMA1_S6_FEIF) != 0u) tx_dma_fifo_errors++;
+        }
+        (void)uart_tx_queue_consume(&tx_queue, tx_dma_length);
+    }
+    tx_dma_length = 0u;
+    tx_dma_active = false;
+    dma_kick();
 }
 
-/* ── USART2 RX ISR ──────────────────────────────────────────────────────── */
 void USART2_IRQHandler(void)
 {
-    uint32_t sr = USART2->SR;
-    if (sr & USART_SR_RXNE) {
-        uint8_t byte = (uint8_t)(USART2->DR & 0xFFu);
-        uint16_t next = (rx_head + 1u) % RX_RING_SIZE;
-        if (next != rx_tail) {   /* drop byte on overflow */
+    const uint32_t sr = USART2->SR;
+    if ((sr & USART_SR_RXNE) != 0u) {
+        const uint8_t byte = (uint8_t)(USART2->DR & 0xFFu);
+        const uint16_t next = (uint16_t)((rx_head + 1u) % RX_RING_SIZE);
+        if (next != rx_tail) {
             rx_ring[rx_head] = byte;
             rx_head = next;
+        } else {
+            rx_dropped++;
         }
     }
-    /* Clear overrun without losing data */
-    if (sr & USART_SR_ORE) {
-        (void)USART2->DR;
-    }
+    if ((sr & USART_SR_ORE) != 0u) (void)USART2->DR;
 }
 
-/* ── emit (DMA TX, non-blocking) ─────────────────────────────────────────── */
 void uart_esp_emit(const char *s)
 {
     if (!s || !*s) return;
-    size_t len = strlen(s);
-    if (len > TX_BUF_SIZE) len = TX_BUF_SIZE;
-
-    if (tx_busy) {
-        /* Fallback: polled TX if DMA still running (should be rare) */
-        const char *p = s;
-        while (*p) {
-            while (!(USART2->SR & USART_SR_TXE)) {}
-            USART2->DR = (uint8_t)*p++;
-        }
-        while (!(USART2->SR & USART_SR_TC)) {}
+    const size_t length = strlen(s);
+    if (!uart_tx_queue_write(&tx_queue, (const uint8_t *)s, length)) {
+        tx_dropped++;
         return;
     }
-
-    memcpy(tx_buf, s, len);
-    tx_busy = true;
-
-    DMA1_Stream6->CR &= ~DMA_SxCR_EN;
-    while (DMA1_Stream6->CR & DMA_SxCR_EN) {}
-    DMA1->HIFCR = 0x3Fu << 16u;
-    DMA1_Stream6->M0AR = (uint32_t)tx_buf;
-    DMA1_Stream6->NDTR = (uint16_t)len;
-    DMA1_Stream6->CR |= DMA_SxCR_EN;
+    dma_kick();
 }
 
-/* ── emit line (data + '\n' in one DMA shot) ────────────────────────────── */
-void uart_esp_emit_line(const char *s, size_t n)
+bool uart_esp_emit_line(const char *s, size_t n)
 {
-    if (!s || n == 0) return;
-    if (n > TX_BUF_SIZE - 1u) n = TX_BUF_SIZE - 1u;   /* leave room for '\n' */
-
-    if (tx_busy) {
-        /* Fallback: polled TX */
-        for (size_t i = 0; i < n; i++) {
-            while (!(USART2->SR & USART_SR_TXE)) {}
-            USART2->DR = (uint8_t)s[i];
-        }
-        while (!(USART2->SR & USART_SR_TXE)) {}
-        USART2->DR = (uint8_t)'\n';
-        while (!(USART2->SR & USART_SR_TC)) {}
-        return;
+    if (!s || n == 0u) return true;
+    if (!uart_tx_queue_write_line(&tx_queue, (const uint8_t *)s, n)) {
+        tx_dropped++;
+        return false;
     }
-
-    memcpy(tx_buf, s, n);
-    tx_buf[n] = '\n';
-    tx_busy = true;
-
-    DMA1_Stream6->CR &= ~DMA_SxCR_EN;
-    while (DMA1_Stream6->CR & DMA_SxCR_EN) {}
-    DMA1->HIFCR = 0x3Fu << 16u;
-    DMA1_Stream6->M0AR = (uint32_t)tx_buf;
-    DMA1_Stream6->NDTR = (uint16_t)(n + 1u);
-    DMA1_Stream6->CR |= DMA_SxCR_EN;
+    dma_kick();
+    return true;
 }
 
-/* ── RX line assembly (main loop) ────────────────────────────────────────── */
+uint32_t uart_esp_tx_dropped(void) { return tx_dropped; }
+uint32_t uart_esp_tx_dma_errors(void) { return tx_dma_errors; }
+uint32_t uart_esp_tx_dma_transfer_errors(void) { return tx_dma_transfer_errors; }
+uint32_t uart_esp_tx_dma_direct_errors(void) { return tx_dma_direct_errors; }
+uint32_t uart_esp_tx_dma_fifo_errors(void) { return tx_dma_fifo_errors; }
+uint32_t uart_esp_tx_dma_last_flags(void) { return tx_dma_last_flags; }
+uint32_t uart_esp_rx_dropped(void) { return rx_dropped; }
+
 const char *uart_esp_rx_line(void)
 {
     while (rx_tail != rx_head) {
-        uint8_t c = rx_ring[rx_tail];
-        rx_tail = (rx_tail + 1u) % RX_RING_SIZE;
+        const uint8_t c = rx_ring[rx_tail];
+        rx_tail = (uint16_t)((rx_tail + 1u) % RX_RING_SIZE);
 
         if (c == '\n') {
+            if (rx_line_overflow) {
+                rx_line_overflow = false;
+                rx_line_pos = 0u;
+                continue;
+            }
             rx_line[rx_line_pos] = '\0';
-            /* trim trailing CR */
-            if (rx_line_pos > 0 && rx_line[rx_line_pos - 1] == '\r')
-                rx_line[--rx_line_pos] = '\0';
-            rx_line_pos = 0;
+            rx_line_pos = 0u;
             if (rx_line[0] != '\0') return rx_line;
-            continue;  /* skip empty lines */
+            continue;
         }
-        if (c != '\r' && rx_line_pos < RX_LINE_SIZE - 1u) {
+        if (c == '\r' || rx_line_overflow) continue;
+        if (rx_line_pos < RX_LINE_SIZE - 1u) {
             rx_line[rx_line_pos++] = (char)c;
+        } else {
+            rx_line_pos = 0u;
+            rx_line_overflow = true;
+            rx_dropped++;
         }
     }
-    return NULL;  /* no complete line yet */
+    return NULL;
 }

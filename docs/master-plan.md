@@ -16,7 +16,7 @@ OBD-II J1962 Connector
 STM32F407 @ 168 MHz (HSE 8MHz + PLL)
     ├─ CAN1 + CAN2 both active → dual 2048-frame queues in CCM RAM
     ├─ TIM2 @ 1 µs timestamp resolution
-    ├─ USART1 @ 5.25 Mbit/s + DMA TX → ESP32 GPIO16/17
+    ├─ USART2 PA2/PA3 @ 2.0 Mbit/s 8N1 + DMA TX / RXNE RX → ESP32 GPIO16/17
     ├─ I2C1 @ 400 kHz → 24LC512 EEPROM (PB6/PB7)
     ├─ ITM/SWO @ 2 Mbit/s → PC debug (PA15 / ST-Link)
     ├─ OBD-II Mode 01/03/04/09 + Honda Mode 21
@@ -24,10 +24,11 @@ STM32F407 @ 168 MHz (HSE 8MHz + PLL)
     └─ UDS client (ISO 14229 + ISO 15765-2 ISO-TP)
 
 ESP32 @ 240 MHz
-    ├─ UART2 @ 5.25 Mbit/s ← STM32 (4 KB RX ring buffer)
-    ├─ WS batch broadcast (5ms coalesce, static 512-byte buffer)
-    ├─ Wi-Fi AP → browser dashboard
-    └─ OTA for both boards
+    ├─ UART2 @ 2.0 Mbit/s 8N1 ↔ STM32 (8 KB ESP32 RX buffer; JSON line protocol)
+    ├─ WebSocket server on port 81, path `/`, JSON telemetry + command bridge
+    ├─ Wi-Fi AP → browser dashboard (HTTP port 80)
+    ├─ Buffered SPIFFS log + live `/debug` counters
+    └─ STM32 ROM-bootloader update over USART2
 
 Browser Dashboard (http://192.168.4.1)
     ├─ Metric cards (RPM, Coolant, Fuel, Battery)
@@ -40,6 +41,24 @@ Browser Dashboard (http://192.168.4.1)
     ├─ Firmware Update panel (ESP32 + STM32 OTA)
     └─ STM32 Debug Monitor (ITM/SWO live values)
 ```
+
+## Current runtime source of truth (2026-11-23)
+
+- STM32F407 USART2 PA2/PA3 ↔ ESP32 GPIO16/GPIO17, 2,000,000 baud, 8N1.
+- STM32 TX: DMA1 Stream6/Channel4 with bounded queue; STM32 RX: USART2 RXNE interrupt.
+- The UART carries newline-delimited dashboard JSON and dashboard commands, not raw CAN CSV.
+- ESP32 AP: `ST-CAN` at `192.168.4.1`; dashboard HTTP port 80; WebSocket port 81, path `/`.
+- STM32 ROM bootloader update uses a separate 115200 baud, 8E1 session.
+
+The USART1/5.25-Mbit sections below are retained as historical design notes and are not the current wiring or runtime configuration.
+
+## Pipeline boundaries and diagnostics
+
+- The dashboard frame table is bounded to 192 distinct (CAN ID, bus, standard/extended) identities. The `over` field counts frame updates not represented after capacity is reached.
+- GVRET TCP port 23 is a separate raw-frame path with one client slot. `gvret_frames_sent` and `gvret_frames_dropped` expose successful queueing and TCP send-buffer/write backpressure; a connected client and zero drops are required for a live raw-stream assertion.
+- Generated DBC decoding is restricted to standard F-CAN identifiers with matching definitions. B-CAN, extended frames, and unknown IDs remain raw-only; definitions are not fabricated for unsupported traffic.
+- STM32 USART2 counters (`uart_tx_dropped`, `uart_tx_dma_errors`, `uart_rx_dropped`) are published in a periodic `pipeline_diag` record. The ESP32 caches them for `/debug` and the dashboard UI, including a report-age field so stale diagnostics are distinguishable from zero errors.
+- The ESP32 reports its own UART byte/line/overflow counts and live WebSocket client count. A nonzero client count is required before browser forwarding can be asserted; the dashboard test harness alone does not establish a live vehicle session.
 
 ---
 
@@ -60,7 +79,7 @@ Browser Dashboard (http://192.168.4.1)
 | Write mode (raw frame editor, no confirm, load defaults) | ✅ |
 | ESP32 OTA (/update) | ✅ |
 | STM32 OTA via UART bootloader (Extended Erase 0x44 fixed) | ✅ |
-| USART switched to USART1 PA9/PA10 (Discovery board P2 header) | ✅ |
+| Runtime bridge uses USART2 PA2/PA3 at 2.0 Mbit/s 8N1 (ESP32 GPIO16/17) | ✅ |
 | All 15 audit bugs fixed | ✅ |
 | Queue 512 frames, id no-0x-prefix, rate uint64, ev.preventDefault | ✅ |
 | WDT feed in bootloader wait loop, heap bounds check | ✅ |
@@ -69,7 +88,7 @@ Browser Dashboard (http://192.168.4.1)
 
 ---
 
-## Phase 1 — 168 MHz + 5.25 Mbit/s UART + DMA + TIM2 + CCM
+## Historical Phase 1 — 168 MHz + USART1 at 5.25 Mbit/s (superseded by current USART2 bridge)
 
 **Goal: Eliminate the 97% frame drop rate. No new hardware needed.**
 
@@ -89,7 +108,7 @@ Clock guards updated: accept 168 MHz OR 16 MHz fallback (not hardcoded == 16M).
 
 **File:** `firmware/Core/Src/main.c`
 
-### P1.2 — USART1 at 5.25 Mbit/s
+### Historical P1.2 — USART1 at 5.25 Mbit/s (not the current runtime link)
 
 ```c
 /* PCLK2=84 MHz: BRR = 84,000,000 / 5,250,000 = 16 → 0% error */
@@ -104,7 +123,7 @@ Stm32.setRxBufferSize(4096);  /* before begin() */
 Stm32.begin(5250000, SERIAL_8N1, STM32_RX, STM32_TX);
 ```
 
-### P1.3 — DMA TX for USART1 (zero CPU cost for UART)
+### Historical P1.3 — DMA TX for USART1 (superseded)
 
 **New files:** `firmware/Core/Inc/uart_dma.h`, `firmware/Core/Src/uart_dma.c`
 
@@ -592,7 +611,7 @@ Check SB21 solder bridge on Discovery board. If open → solder closed.
 | `Core/Src/obd2_decoder.c` | Mode 03/04/09, Honda Mode 21 |
 | `Core/Inc/civic_can_db.h` | MS-CAN IDs added |
 | `firmware/Makefile` | New sources, USE_HSE_168MHZ, USE_CAN2, USE_EEPROM, USE_ITM flags |
-| `esp32-dashboard/src/main.cpp` | 5.25 Mbit/s, 4KB RX buf, zero-copy broadcast, all new line types, ECU/UDS/CORR/NAT |
+| `esp32_bridge/src/main.cpp` | 2.0 Mbit/s JSON UART bridge, 8KB RX buffer, per-client WS command reassembly, buffered SPIFFS logging |
 | `esp32-dashboard/platformio.ini` | 240MHz config, new baud |
 
 ---
@@ -635,7 +654,7 @@ Phase 8  ← host PC tools, parallel / optional
 | Metric | Phase 0 | Phase 1 | Phase 2 | Phase 3 | All Done |
 |---|---|---|---|---|---|
 | STM32 clock | 16 MHz | **168 MHz** | 168 | 168 | 168 |
-| UART baud | 115,200 | **5,250,000** | 5.25M | 5.25M | 5.25M |
+| UART baud | 115,200 bootloader | **2,000,000 runtime** | 2.0M | 2.0M | 2.0M |
 | Frame drops | 97% | **0%** | 0% | 0% | 0% |
 | Timestamp | 1 ms | **1 µs** | 1 µs | 1 µs | 1 µs |
 | CAN buses | 1 | 1 | **2** | 2 | 2 |

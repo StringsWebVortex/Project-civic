@@ -438,30 +438,35 @@ static bool ws_write_frame(ws_client_t *w, uint8_t opcode, const void *data, siz
 
 void ws_send_txt(uint8_t num, const char *s, size_t n)
 {
-    if (num < WS_MAX_CLIENTS && s_ws[num].open) (void)ws_write_frame(&s_ws[num], 0x1u, s, n);
+    if (num == WS_BRIDGE_CLIENT) {
+        (void)uart_esp_emit_line(s, n);
+        return;
+    }
+    if (num < WS_DIRECT_CLIENTS && s_ws[num].open)
+        (void)ws_write_frame(&s_ws[num], 0x1u, s, n);
 }
 
 bool ws_send_txt_ok(uint8_t num, const char *s, size_t n)
 {
-    if (num >= WS_MAX_CLIENTS || !s_ws[num].open) return true;    /* nothing to deliver to */
+    if (num == WS_BRIDGE_CLIENT) return uart_esp_emit_line(s, n);
+    if (num >= WS_DIRECT_CLIENTS || !s_ws[num].open) return true;
     return ws_write_frame(&s_ws[num], 0x1u, s, n);
 }
 
-void ws_broadcast_txt(const char *s, size_t n)
+bool ws_broadcast_txt(const char *s, size_t n)
 {
-    /* lwIP WS clients (USB-CDC-ECM direct connection) */
-    for (uint8_t i = 0; i < WS_MAX_CLIENTS; i++) if (s_ws[i].open) (void)ws_write_frame(&s_ws[i], 0x1u, s, n);
+    /* Direct USB-network WebSocket clients. */
+    for (uint8_t i = 0; i < WS_DIRECT_CLIENTS; i++)
+        if (s_ws[i].open) (void)ws_write_frame(&s_ws[i], 0x1u, s, n);
 
-    /* Mirror to ESP32 UART bridge — ESP forwards to WiFi WS clients.
-     * uart_esp_emit_line() sends data + '\n' in one DMA transfer so
-     * the ESP can reassemble line-delimited JSON on the other end. */
-    uart_esp_emit_line(s, n);
+    /* The caller can retry telemetry batches if the bounded UART queue is full. */
+    return uart_esp_emit_line(s, n);
 }
 
 uint8_t ws_connected_clients(void)
 {
     uint8_t n = 0;
-    for (unsigned i = 0; i < WS_MAX_CLIENTS; i++) if (s_ws[i].open) n++;
+    for (unsigned i = 0; i < WS_DIRECT_CLIENTS; i++) if (s_ws[i].open) n++;
     return n;
 }
 
@@ -545,7 +550,7 @@ static err_t ws_accept(void *arg, struct tcp_pcb *pcb, err_t err)
     (void)arg;
     if (err != ERR_OK || !pcb) return ERR_VAL;
     ws_client_t *w = NULL;
-    for (unsigned i = 0; i < WS_MAX_CLIENTS; i++) if (!s_ws[i].pcb) { w = &s_ws[i]; break; }
+    for (unsigned i = 0; i < WS_DIRECT_CLIENTS; i++) if (!s_ws[i].pcb) { w = &s_ws[i]; break; }
     if (!w) { tcp_abort(pcb); return ERR_ABRT; }
     w->pcb = pcb; w->open = false; w->rlen = 0;
     tcp_nagle_disable(pcb);

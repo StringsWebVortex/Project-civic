@@ -182,7 +182,7 @@
 </g>
 <!-- Wires -->
 <path d="M400 386 L400 470 L960 470 L960 237 L1140 237" fill="none" stroke="#56d364" stroke-width="1.8" stroke-dasharray="5,3"/>
-<text x="700" y="465" text-anchor="middle" fill="#56d364" font-size="8">PA2 USART2_TX to GPIO16/RX2  115200 8N1</text>
+<text x="700" y="465" text-anchor="middle" fill="#56d364" font-size="8">PA2 USART2_TX to GPIO16/RX2  2,000,000 8N1</text>
 <path d="M411 386 L411 480 L955 480 L955 254 L1140 254" fill="none" stroke="#56d364" stroke-width="1.8" stroke-dasharray="5,3"/>
 <text x="700" y="476" text-anchor="middle" fill="#56d364" font-size="8">PA3 USART2_RX from GPIO17/TX2</text>
 <path d="M212 300 L180 300 L180 510 L600 510 L600 270 L622 270" fill="none" stroke="#79c0ff" stroke-width="1.8"/>

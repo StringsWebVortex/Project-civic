@@ -22,6 +22,7 @@
 #include "flash_store.h"
 #include "gvret.h"
 #include "can_dbc.h"
+#include "uart_esp.h"
 #define JSMN_STATIC
 #include "jsmn.h"
 
@@ -132,6 +133,17 @@ static void frameTableUpdate(uint32_t id, bool ext, uint8_t bus, uint8_t dlc, co
     int i = 0;
     for (; i < ftabN; i++) if (ftab[i].id == id && ftab[i].bus == bus && ftab[i].ext == ext) break;
     if (i == ftabN) {
+        /* A replayed user label may have reserved an ID before its first frame. */
+        for (int j = 0; j < ftabN; j++) {
+            if (ftab[j].id == id && ftab[j].total == 0u && ftab[j].user_label[0]) {
+                i = j;
+                ftab[i].bus = bus;
+                ftab[i].ext = ext;
+                break;
+            }
+        }
+    }
+    if (i == ftabN) {
         if (ftabN >= FRAME_TABLE_MAX) { ftabOverflow++; return; }
         memset(&ftab[i], 0, sizeof ftab[i]);
         ftab[i].id = id; ftab[i].bus = bus; ftab[i].ext = ext; ftabN++;
@@ -156,7 +168,7 @@ static void frameBatchFlush(void)
     lastBatch = now;
     /* Smaller than the ESP32's 12 KB buffer: entries that do not fit stay
      * dirty and go out in the next 250 ms batch, exactly as on the ESP32. */
-    static char out[2048];
+    static char out[WS_MAX_MESSAGE + 1u];
     int n = snprintf(out, sizeof out,
         "{\"type\":\"frames\",\"fps\":[%u,%u],\"bps\":[%u,%u],\"total\":%u,\"locked\":%s,\"bitrate\":%u,"
         "\"drop\":[%lu,%lu],\"over\":%lu,\"l\":[",
@@ -174,7 +186,11 @@ static void frameBatchFlush(void)
                       (unsigned)e->total, (double)e->rate, e->user_label);
         first = false;
     }
-    if (n < (int)sizeof out - 3) { out[n++] = ']'; out[n++] = '}'; out[n] = 0; ws_broadcast_txt(out, (size_t)n); }
+    if (n < (int)sizeof out - 3) {
+        out[n++] = ']'; out[n++] = '}'; out[n] = 0;
+        if (!ws_broadcast_txt(out, (size_t)n))
+            for (int i = 0; i < ftabN; i++) ftab[i].dirty = 1;
+    }
 }
 
 /* ═══ DECODED BROADCAST SIGNALS (DBC table, F-CAN standard IDs, 500 ms) ═══
@@ -187,7 +203,7 @@ static void decBatchFlush(void)
     const uint32_t now = millis();
     if (now - lastDec < DEC_BATCH_MS) return;
     lastDec = now;
-    static char out[2048];
+    static char out[WS_MAX_MESSAGE + 1u];
     int n = snprintf(out, sizeof out, "{\"type\":\"dec\",\"l\":[");
     bool first = true, full = false;
     for (int k = 0; k < ftabN && !full; k++) {
@@ -215,7 +231,10 @@ static void decBatchFlush(void)
     }
     if (first) return;                                     /* nothing decoded */
     out[n++] = ']'; out[n++] = '}'; out[n] = 0;
-    ws_broadcast_txt(out, (size_t)n);
+    if (!ws_broadcast_txt(out, (size_t)n)) {
+        for (int i = 0; i < ftabN; i++)
+            if (ftab[i].bus == 0u && !ftab[i].ext) ftab[i].decdirty = 1;
+    }
 }
 
 /* ═════════ DECODED-DATA LOGGER (1 Hz) + READ-ONLY OBSERVER (TCP 2323) ══ */
@@ -299,8 +318,26 @@ static uint32_t crc32(const void *d, size_t n)
 }
 static uint32_t eventCrc(const DtcEvent *e) { return crc32(e, offsetof(DtcEvent, lastReportedMs)); }
 
+#ifdef FS_HOST_TEST
+static void capturePostEventSample(const char *csv, size_t n);
+static bool s_test_fail_save_events;
+static bool s_test_fail_event_rewrite;
+void dash_test_fail_save_events(bool fail) { s_test_fail_save_events = fail; }
+void dash_test_fail_event_rewrite(bool fail) { s_test_fail_event_rewrite = fail; }
+uint32_t dash_test_latest_event_id(void) { return eventCount ? eventStore[eventCount - 1u].id : 0u; }
+void dash_test_capture_post_event_sample(void) { capturePostEventSample("POST,TEST", 9u); }
+bool dash_test_snapshot_ready(uint32_t id)
+{
+    DtcEvent *event = findEvent(id);
+    return event && event->snapshotReady;
+}
+#endif
+
 static bool saveEvents(void)
 {
+#ifdef FS_HOST_TEST
+    if (s_test_fail_save_events) return false;
+#endif
     if (!logFsOk) return false;
     bool ok = true;
     for (size_t s = 0; s < savedN; s++) {                  /* removed events */
@@ -323,14 +360,21 @@ static bool saveEvents(void)
 }
 
 /* compaction callbacks */
+static bool appendEventRecord(uint32_t id, const DtcEvent *event)
+{
+#ifdef FS_HOST_TEST
+    if (s_test_fail_event_rewrite) return false;
+#endif
+    return evst_append(EV_REC_EVENT, id, event, (uint16_t)offsetof(DtcEvent, lastReportedMs));
+}
+
 static bool rewriteEvents(void)
 {
     if (!dev_rewrite(dev_global(), evst_append)) return false;   /* identity data first */
     if (!mail_rewrite(mail_global(), evst_append)) return false;
     if (!sl_rewrite(sl_global(), evst_append)) return false;    /* learned signal grades */
     for (size_t i = 0; i < eventCount; ++i)
-        if (!evst_append(EV_REC_EVENT, eventStore[i].id, &eventStore[i], (uint16_t)offsetof(DtcEvent, lastReportedMs)))
-            return false;
+        if (!appendEventRecord(eventStore[i].id, &eventStore[i])) return false;
     return true;
 }
 static bool snapLive(uint32_t id)
@@ -374,13 +418,20 @@ static void replayRecord(uint8_t type, uint32_t id, const uint8_t *d, uint16_t l
         /* On boot replay: store label in frame table + broadcast to WS clients */
         char lbuf[20]; uint16_t cp = len < 19u ? len : 19u;
         memcpy(lbuf, d, cp); lbuf[cp] = '\0';
+        FrameEnt *target = NULL;
         for (int i = 0; i < ftabN; i++) {
-            if (ftab[i].id == id) {
-                uint16_t cp2 = cp < (sizeof(ftab[i].user_label) - 1u) ? cp : (uint16_t)(sizeof(ftab[i].user_label) - 1u);
-                memcpy(ftab[i].user_label, lbuf, cp2);
-                ftab[i].user_label[cp2] = '\0';
-                break;
-            }
+            if (ftab[i].id == id) { target = &ftab[i]; break; }
+        }
+        if (!target && ftabN < FRAME_TABLE_MAX) {
+            target = &ftab[ftabN++];
+            memset(target, 0, sizeof *target);
+            target->id = id;
+            target->ext = id > 0x7FFu ? 1u : 0u;
+        }
+        if (target) {
+            uint16_t cp2 = cp < (sizeof(target->user_label) - 1u) ? cp : (uint16_t)(sizeof(target->user_label) - 1u);
+            memcpy(target->user_label, lbuf, cp2);
+            target->user_label[cp2] = '\0';
         }
         char nb[128];
         int nn = snprintf(nb, sizeof nb, "{\"type\":\"label_update\",\"id\":\"%08X\",\"label\":\"%s\"}", (unsigned)id, lbuf);
@@ -718,10 +769,14 @@ static void emitStatus(void)
 /* ═════════════════════ GVRET over TCP (SavvyCAN / RealDash, port 23) ═══ */
 static struct tcp_pcb *gvretCli;
 static struct gvret_parser gvretParser;
+static uint32_t gvretFramesSent, gvretFramesDropped;
 
-static void gvretWrite(const uint8_t *b, size_t n)
+static bool gvretWrite(const uint8_t *b, size_t n)
 {
-    if (gvretCli && n && tcp_sndbuf(gvretCli) >= n) (void)tcp_write(gvretCli, b, (u16_t)n, TCP_WRITE_FLAG_COPY | TCP_WRITE_FLAG_MORE);
+    if (!gvretCli || !b || n == 0u || n > UINT16_MAX) return false;
+    if (tcp_sndbuf(gvretCli) < n) return false;
+    return tcp_write(gvretCli, b, (u16_t)n,
+                     TCP_WRITE_FLAG_COPY | TCP_WRITE_FLAG_MORE) == ERR_OK;
 }
 
 /* Live controller state for GVRET; main.c provides the real one. */
@@ -746,7 +801,7 @@ static void gvretHandle(const uint8_t *data, size_t len)
             uint32_t b0, b1; bool l0, l1;
             const bool e0 = project_bus_state(0u, &b0, &l0), e1 = project_bus_state(1u, &b1, &l1);
             uint8_t pb[16]; const size_t pn = gvret_encode_canbus_params_lo(pb, sizeof pb, e0, l0, b0, e1, l1, b1);
-            gvretWrite(pb, pn); break;
+            (void)gvretWrite(pb, pn); break;
         }
         case GVRET_CMD_SEND_FRAME: {
             char tb[64];
@@ -915,7 +970,8 @@ static void parseLine(const char *raw, int len)
             uint8_t gb[GVRET_MAX_FRAME_BYTES];
             const size_t gn = gvret_encode_frame(gb, sizeof gb, (uint8_t)busN, idv, ext, rtr, (uint8_t)dlc, d2,
                                                  (uint32_t)strtoul(ts, NULL, 10));
-            gvretWrite(gb, gn);
+            if (gvretWrite(gb, gn)) gvretFramesSent++;
+            else gvretFramesDropped++;
         }
         return;
     }
@@ -1067,6 +1123,25 @@ static void idBackupService(void)
     else dash_identity_changed();
 }
 
+#ifdef FS_HOST_TEST
+void dash_test_reset_frame_table(void)
+{
+    memset(ftab, 0, sizeof ftab);
+    ftabN = 0;
+    ftabOverflow = 0u;
+    gvretFramesSent = 0u;
+    gvretFramesDropped = 0u;
+}
+
+void dash_test_run_backup_service(void)
+{
+    busFps[0] = 0u;
+    busFps[1] = 0u;
+    s_idDirtyAt = millis() - 5000u;
+    idBackupService();
+}
+#endif
+
 void dash_ws_connected(uint8_t num)
 {
     if (num >= WS_MAX_CLIENTS) return;
@@ -1081,6 +1156,21 @@ void dash_ws_disconnected(uint8_t num)
     for (int i = 0; i < (int)WS_MAX_CLIENTS; i++) any = any || wsAuthed[i];
     /* No operator left: end any ARM window on both buses. */
     if (!any && !stm32FlashRunning) { stm32_print("DISARM,F"); stm32_print("DISARM,B"); }
+}
+
+void dash_bridge_connected(void)
+{
+    if (!wsAuthed[WS_BRIDGE_CLIENT]) dash_ws_connected(WS_BRIDGE_CLIENT);
+}
+
+void dash_bridge_disconnected(void)
+{
+    if (wsAuthed[WS_BRIDGE_CLIENT]) dash_ws_disconnected(WS_BRIDGE_CLIENT);
+}
+
+void dash_bridge_text(char *msg, size_t len)
+{
+    if (wsAuthed[WS_BRIDGE_CLIENT]) dash_ws_text(WS_BRIDGE_CLIENT, msg, len);
 }
 
 static void applyLabel(uint32_t frame_id, const char *lbl, uint16_t llen, bool persist);
@@ -1351,13 +1441,6 @@ void dash_http_request(http_conn_t *c, const http_req_t *r)
     if (is_get(r) && strcmp(r->path, "/") == 0) {
         http_respond(c, 200, "text/html", "Content-Encoding: gzip\r\n", dash_page_gz, dash_page_gz_len); return;
     }
-    /* captive portal — Android/Windows/Linux/iOS auto-open browser on connect */
-    if (is_get(r) && (strcmp(r->path, "/generate_204") == 0 ||
-                      strcmp(r->path, "/ncsi.txt") == 0 ||
-                      strcmp(r->path, "/connecttest.txt") == 0 ||
-                      strcmp(r->path, "/hotspot-detect.html") == 0)) {
-        http_respond(c, 302, "text/plain", "Location: http://192.168.7.1/\r\n", "", 0); return;
-    }
     if (is_get(r) && strcmp(r->path, "/token") == 0) {
         http_respond(c, 200, "text/plain", "Cache-Control: no-store\r\n", wsToken, strlen(wsToken)); return;
     }
@@ -1520,6 +1603,8 @@ static struct tcp_pcb *listen_port(uint16_t port, tcp_accept_fn fn)
 bool dash_init(dash_cmd_fn cmd, can_capture_queue_t *q_fcan, can_capture_queue_t *q_bcan)
 {
     s_cmd = cmd;
+    gvretFramesSent = 0u;
+    gvretFramesDropped = 0u;
     s_capq[0] = q_fcan; s_capq[1] = q_bcan;
     fs_init(q_fcan, q_bcan);
     RCC->AHB2ENR |= RCC_AHB2ENR_RNGEN; (void)RCC->AHB2ENR; RNG->CR |= RNG_CR_RNGEN;
@@ -1544,9 +1629,37 @@ bool dash_init(dash_cmd_fn cmd, can_capture_queue_t *q_fcan, can_capture_queue_t
     return ok && logFsOk;
 }
 
+static void pipelineDiagService(void)
+{
+    static uint32_t last;
+    const uint32_t now = millis();
+    if ((uint32_t)(now - last) < 1000u) return;
+    last = now;
+
+    /* Compact keys keep the entire record below the bounded UART line size. */
+    char out[256];
+    const int n = snprintf(out, sizeof out,
+        "{\"type\":\"pipeline_diag\",\"txd\":%lu,\"dma\":%lu,"
+        "\"te\":%lu,\"dme\":%lu,\"fe\":%lu,\"flg\":%lu,"
+        "\"rxd\":%lu,\"gv\":%u,\"sent\":%lu,\"drop\":%lu,\"dbc\":%u}",
+        (unsigned long)uart_esp_tx_dropped(),
+        (unsigned long)uart_esp_tx_dma_errors(),
+        (unsigned long)uart_esp_tx_dma_transfer_errors(),
+        (unsigned long)uart_esp_tx_dma_direct_errors(),
+        (unsigned long)uart_esp_tx_dma_fifo_errors(),
+        (unsigned long)uart_esp_tx_dma_last_flags(),
+        (unsigned long)uart_esp_rx_dropped(),
+        (unsigned)(gvretCli != NULL),
+        (unsigned long)gvretFramesSent,
+        (unsigned long)gvretFramesDropped,
+        can_dbc_msg_count);
+    if (n > 0 && (size_t)n < sizeof out) (void)ws_broadcast_txt(out, (size_t)n);
+}
+
 void dash_poll(void)
 {
     web_server_poll();
+    pipelineDiagService();
     frameBatchFlush();
     decBatchFlush();
     logService();

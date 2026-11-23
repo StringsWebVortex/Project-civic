@@ -6,6 +6,19 @@
 #include <string.h>
 #include "../Core/Src/web_server.c"
 
+static char uart_mirror[70000];
+static size_t uart_mirror_len;
+static unsigned uart_mirror_calls;
+bool uart_esp_emit_line(const char *s, size_t n)
+{
+    if (!s || n + 1u > sizeof uart_mirror - uart_mirror_len) return false;
+    memcpy(uart_mirror + uart_mirror_len, s, n);
+    uart_mirror_len += n;
+    uart_mirror[uart_mirror_len++] = '\n';
+    uart_mirror_calls++;
+    return true;
+}
+
 volatile uint32_t system_millis;
 static int failures;
 #define CHECK(c, m) do { if (!(c)) { printf("FAIL %s:%d %s\n", __FILE__, __LINE__, m); failures++; } } while (0)
@@ -86,8 +99,11 @@ static void test_ws(void)
     feed(p, fr, 5); feed(p, fr + 5, n - 5);
     CHECK(strcmp(got_text, msg) == 0, "unmasked text delivered");
     /* server -> client text frame */
-    outn[p->id] = 0; ws_broadcast_txt("hello", 5);
+    outn[p->id] = 0; uart_mirror_len = 0; uart_mirror_calls = 0;
+    ws_broadcast_txt("hello", 5);
     CHECK(outn[p->id] == 7 && (uint8_t)out[p->id][0] == 0x81 && out[p->id][1] == 5 && !memcmp(out[p->id] + 2, "hello", 5), "server text frame");
+    CHECK(uart_mirror_calls == 1u && uart_mirror_len == 6u &&
+          memcmp(uart_mirror, "hello\n", 6u) == 0, "broadcast is mirrored as one UART line");
     /* 300-byte message uses the 16-bit length form */
     char big[300]; memset(big, 'a', sizeof big); outn[p->id] = 0; ws_broadcast_txt(big, sizeof big);
     CHECK(outn[p->id] == 304 && (uint8_t)out[p->id][1] == 126 && (uint8_t)out[p->id][2] == 1 && (uint8_t)out[p->id][3] == 44, "extended length");
