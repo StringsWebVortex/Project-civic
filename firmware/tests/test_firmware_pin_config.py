@@ -179,6 +179,18 @@ class HardwarePinConfigTests(unittest.TestCase):
             'if (strcmp(cmd, "TX") == 0)', 1)[0]
         self.assertIn("if (c->tx_armed)", bitrate_command)
 
+    def test_can_scanning_and_bitrate_selection_ignore_optional_ignition_pins(self):
+        periodic = MAIN.split("static void bus_periodic(", 1)[1].split(
+            "static void periodic_tx_service", 1)[0]
+        self.assertIn("if (!c->scan_active) return;", periodic)
+        self.assertNotIn("veh_parked()", periodic)
+        bitrate = MAIN.split('if (strcmp(cmd, "BITRATE") == 0)', 1)[1].split(
+            'if (strcmp(cmd, "TX") == 0)', 1)[0]
+        self.assertNotIn("veh_parked()", bitrate)
+        self.assertIn("if (!veh_key_on())", MAIN.split(
+            'if (strcmp(cmd, "ARM") == 0)', 1)[1].split(
+            'if (strcmp(cmd, "DISARM") == 0)', 1)[0])
+
     def test_arm_confirm_and_ignition_safety_are_preserved(self):
         timing = (ROOT / "Core/Src/uds_client.c").read_text()
         arm_command = MAIN.split('if (strcmp(cmd, "ARM") == 0)', 1)[1].split(

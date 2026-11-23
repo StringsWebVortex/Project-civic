@@ -846,7 +846,8 @@ static void host_command(char *lb)
         return;
     }
     if (strcmp(cmd, "BITRATE") == 0) {
-        if (veh_parked()) { emit("STATUS,ERR,KEY_OFF\r\n"); return; }
+        /* Manual bitrate selection is receive-only and does not depend on
+         * remote-start ignition inputs. */
         can_ctrl_t *c = sel_bus(strtok_r(NULL, ",", &save));
         char *b = strtok_r(NULL, ",", &save); uint32_t hz;
         if (!c || !b) { emit("STATUS,ERR,BAD_BITRATE\r\n"); return; }
@@ -1184,7 +1185,10 @@ static void leds_update(void)
 /* ── per-bus periodic work: scan/lock reporting, stats, TX service ──────── */
 static void bus_periodic(can_ctrl_t *c, uint32_t *last_stats_ms, uint32_t *last_dwell_ms)
 {
-    if (veh_parked() || !c->scan_active) return;
+    /* CAN capture/bitrate discovery is independent of optional PE5/PE6
+     * remote-start interlocks. Keep passive scanning alive with both pins
+     * disconnected; transmit paths remain separately interlocked. */
+    if (!c->scan_active) return;
     const char *dr = NULL;
     if (can_hw_tx_service(c, system_millis, tx_report, &dr) && dr) disarm(c, dr);
 
@@ -1206,12 +1210,6 @@ static void bus_periodic(can_ctrl_t *c, uint32_t *last_stats_ms, uint32_t *last_
             char s[48]; (void)snprintf(s,sizeof s,"STATUS,%s,DWELL,%lu\r\n",c->cfg->label,(unsigned long)nd); emit(s);
         }
     }
-
-    /* Parked: hold on the last locked bitrate instead of cycling through wrong
-     * rates (which only piles up receive errors on a silent bus). */
-    if (veh_parked() && !c->can_locked && c->last_good_bitrate != 0u &&
-        c->current_bitrate == c->last_good_bitrate && c->valid_frames_at_rate == 0u)
-        c->scan_started_ms = system_millis;
 
     switch (can_hw_scan_step(c, system_millis)) {
     case CAN_SCAN_LOCKED: {
@@ -1266,13 +1264,10 @@ static void rpm_from_frame(const can_capture_frame_t *f)
     }
 }
 
-/* ── vehicle power state (physical ignition inputs are authoritative) ─────
- * PE5 = ACC/key position I; PE6 = IGN2/key position II. Each input must be
- * driven by its own automotive-protected, isolated 12 V -> 3.3 V interface.
- * CAN traffic is deliberately NOT used to infer key state: body modules may
- * chatter after key-off, and a quiet bus cannot wake an unpowered scanner.
- * OFF disarms both bxCAN blocks into SILM; TJA1051 S pins go HIGH (silent).
- * The ESP32 remains alive and can reset STM32 into its ROM bootloader. */
+/* ── optional remote-start ignition interlocks ────────────────────────────
+ * PE5/PE6 are optional, automotive-protected inputs for remote-start/key-state
+ * policy only. CAN reception, passive bitrate scanning and telemetry must
+ * operate independently when these pins are unconnected. */
 #define ACC_PORT GPIOE
 #define ACC_PIN  5u
 #define VEH_UP_DEBOUNCE_MS   100u
