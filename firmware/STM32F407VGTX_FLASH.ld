@@ -39,15 +39,16 @@ ENTRY(Reset_Handler)
 /* Highest address of the user mode stack */
 _estack = ORIGIN(RAM) + LENGTH(RAM); /* end of "RAM" Ram type memory */
 
-_Min_Heap_Size = 0x200; /* required amount of heap */
-_Min_Stack_Size = 0x400; /* required amount of stack */
+_Min_Heap_Size = 0x0; /* no heap used (bare metal, no malloc) */
+_Min_Stack_Size = 0x3C0; /* required amount of stack (960 bytes — actual stack grows down from top of RAM, this is just the linker check) */
 
 /* Memories definition */
 MEMORY
 {
   CCMRAM    (xrw)    : ORIGIN = 0x10000000,   LENGTH = 64K
   RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 128K
-  ROM    (rx)    : ORIGIN = 0x08000000,   LENGTH = 1024K
+  /* Sectors 0-5 only: 6-7 = update staging, 8-11 = log/event storage. */
+  ROM    (rx)    : ORIGIN = 0x08000000,   LENGTH = 256K
 }
 
 /* Sections */
@@ -158,7 +159,7 @@ SECTIONS
   * If initialized variables will be placed in this section,
   * the startup code needs to be modified to copy the init-values.
   */
-  .ccmram :
+  .ccmram (NOLOAD) :
   {
     . = ALIGN(4);
     _sccmram = .;       /* create a global symbol at ccmram start */
@@ -167,7 +168,7 @@ SECTIONS
 
     . = ALIGN(4);
     _eccmram = .;       /* create a global symbol at ccmram end */
-  } >CCMRAM AT> ROM
+  } >CCMRAM
 
   /* Uninitialized data section into "RAM" Ram type memory */
   . = ALIGN(4);

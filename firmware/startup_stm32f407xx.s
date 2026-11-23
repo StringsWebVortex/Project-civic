@@ -94,6 +94,18 @@ LoopFillZerobss:
   cmp r2, r4
   bcc FillZerobss
 
+/* Zero fill the CCM RAM section (.ccmram holds only zero-initialised data). */
+  ldr r2, =_sccmram
+  ldr r4, =_eccmram
+  movs r3, #0
+  b LoopFillZeroCcm
+FillZeroCcm:
+  str  r3, [r2]
+  adds r2, r2, #4
+LoopFillZeroCcm:
+  cmp r2, r4
+  bcc FillZeroCcm
+
 /* Call static constructors */
     bl __libc_init_array
 /* Call the application's entry point.*/
@@ -157,7 +169,7 @@ g_pfnVectors:
   .word     DMA1_Stream0_IRQHandler           /* DMA1 Stream 0                */                  
   .word     DMA1_Stream1_IRQHandler           /* DMA1 Stream 1                */                   
   .word     DMA1_Stream2_IRQHandler           /* DMA1 Stream 2                */                   
-  .word     DMA1_Stream3_IRQHandler           /* DMA1 Stream 3                */                   
+  .word     DMA1_Stream3_IRQHandler           /* DMA1 Stream 3: USART3_TX DMA1 Ch4 */
   .word     DMA1_Stream4_IRQHandler           /* DMA1 Stream 4                */                   
   .word     DMA1_Stream5_IRQHandler           /* DMA1 Stream 5                */                   
   .word     DMA1_Stream6_IRQHandler           /* DMA1 Stream 6                */                   

@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Evidence-only summary of Project-civic's six-field frame CSV.
 
-Input rows: timestamp_ms,format,id,dlc,rtr,payload_hex.
+Input rows: timestamp_us,format,id_hex,dlc,rtr,payload_hex (firmware can_frame_format.c).
+ID is hexadecimal with or without "0x". Timestamp is the STM32 TIM2 1 us counter (wraps at 2^32 us).
 This reports observed traffic statistics only; it does not decode vehicle signals.
+Optional --candump writes a Linux can-utils candump log for reverse engineering in SavvyCAN.
 """
 from __future__ import annotations
 import argparse, csv, statistics, sys
@@ -21,15 +23,22 @@ class MessageStats:
     rtr_count: int = 0
 
 def parse_row(row: list[str], line_number: int):
-    if len(row) != 6:
-        raise ValueError(f"line {line_number}: expected 6 fields, got {len(row)}")
-    ts_s, fmt, id_s, dlc_s, rtr_s, payload_s = (v.strip() for v in row)
+    # 6-field (legacy) or 7-field (with trailing source-bus column) rows.
+    if len(row) not in (6, 7):
+        raise ValueError(f"line {line_number}: expected 6 or 7 fields, got {len(row)}")
+    fields = [v.strip() for v in row]
+    if len(fields) == 7:
+        bus_s = fields[6]
+        if bus_s not in ("0", "1"):
+            raise ValueError(f"line {line_number}: bus column must be 0 or 1")
+        fields = fields[:6]
+    ts_s, fmt, id_s, dlc_s, rtr_s, payload_s = fields
     try:
-        ts, identifier, dlc, rtr = int(ts_s, 10), int(id_s, 0), int(dlc_s, 10), int(rtr_s, 10)
+        ts, identifier, dlc, rtr = int(ts_s, 10), int(id_s, 16), int(dlc_s, 10), int(rtr_s, 10)
     except ValueError as exc:
         raise ValueError(f"line {line_number}: invalid numeric field: {exc}") from exc
     if not 0 <= ts <= 0xFFFFFFFF:
-        raise ValueError(f"line {line_number}: timestamp_ms outside uint32 range")
+        raise ValueError(f"line {line_number}: timestamp_us outside uint32 range")
     if fmt not in ("STD", "EXT"):
         raise ValueError(f"line {line_number}: format must be STD or EXT")
     if not 0 <= identifier <= (0x7FF if fmt == "STD" else 0x1FFFFFFF):
@@ -53,6 +62,8 @@ def analyze(lines):
     for line_number, row in enumerate(csv.reader(lines, strict=True), start=1):
         if not row or (len(row) == 1 and not row[0].strip()):
             continue
+        if row[0].strip().lower().startswith(("timestamp", "status", "pid", "profile", "sig", "tx", "cmd")):
+            continue  # header or non-frame protocol line
         ts, fmt, identifier, dlc, rtr, payload = parse_row(row, line_number)
         item = stats.setdefault((fmt, identifier), MessageStats(fmt, identifier))
         item.count += 1
@@ -74,7 +85,7 @@ def render_report(stats):
     ]
     for item in stats:
         periods = [((b - a) & 0xFFFFFFFF) for a, b in zip(item.timestamps, item.timestamps[1:])]
-        median_period = f"{statistics.median(periods):g}" if periods else "n/a"
+        median_period = f"{statistics.median(periods) / 1000.0:.3f}" if periods else "n/a"
         variable = ",".join(str(i) for i, values in enumerate(item.byte_values) if len(values) > 1) or "none observed"
         dlcs = ",".join(str(value) for value in sorted(item.dlcs))
         width = 3 if item.fmt == "STD" else 8
@@ -82,16 +93,43 @@ def render_report(stats):
     out.extend(["", "## Interpretation limits",
         "- Variable bytes are observations, not decoded signals.",
         "- A single observed value does not prove a constant signal.",
-        "- Periods use adjacent captured timestamps and the firmware millisecond tick; timer accuracy and capture losses are not independently verified here.",
+        "- Periods use adjacent captured timestamps from the firmware 1 us TIM2 counter, shown in ms; capture losses are not independently verified here.",
         "- Correlate with controlled observations and a matching DBC/protocol before assigning signal names or physical units.", ""])
     return "\n".join(out)
+
+def iter_frames(lines):
+    for line_number, row in enumerate(csv.reader(lines, strict=True), start=1):
+        if not row or (len(row) == 1 and not row[0].strip()):
+            continue
+        if row[0].strip().lower().startswith(("timestamp", "status", "pid", "profile", "sig", "tx", "cmd")):
+            continue
+        yield parse_row(row, line_number)
+
+def write_candump(lines, out, interface="can0"):
+    """candump -l log format: (seconds.microseconds) iface ID#DATA, RTR as ID#R.
+    Format as produced by linux-can/can-utils candump. TIM2 wraps are unwrapped."""
+    base = 0
+    last = None
+    for ts, fmt, identifier, dlc, rtr, payload in iter_frames(lines):
+        if last is not None and ts < last:
+            base += 1 << 32
+        last = ts
+        total = base + ts
+        ident = f"{identifier:08X}" if fmt == "EXT" else f"{identifier:03X}"
+        data = "R" if rtr else payload.hex().upper()
+        out.write(f"({total // 1000000:010d}.{total % 1000000:06d}) {interface} {ident}#{data}\n")
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input_csv", type=Path, help="six-field CSV produced by can_capture_frame_to_csv")
     parser.add_argument("-o", "--output", type=Path, help="Markdown report path (default: stdout)")
+    parser.add_argument("--candump", type=Path, help="also write a candump log (for SavvyCAN) to this path")
     args = parser.parse_args()
     try:
+        if args.candump:
+            with args.input_csv.open("r", newline="", encoding="utf-8") as src, \
+                 args.candump.open("w", encoding="utf-8") as dst:
+                write_candump(src, dst)
         with args.input_csv.open("r", newline="", encoding="utf-8") as handle:
             report = render_report(analyze(handle))
         if args.output:

@@ -15,7 +15,7 @@ class AnalyzeCanCsvTests(unittest.TestCase):
         self.assertEqual(standard.count, 2)
         self.assertEqual(standard.byte_values[0], {1})
         self.assertEqual(standard.byte_values[1], {2, 3})
-        self.assertIn("| STD | 0x123 | 2 | 2 | 10 | 1 | 0 |", render_report(stats))
+        self.assertIn("| STD | 0x123 | 2 | 2 | 0.010 | 1 | 0 |", render_report(stats))
         self.assertIn("remains a hypothesis", render_report(stats).lower())
 
     def test_rtr_dlc_does_not_require_payload(self):
@@ -35,12 +35,12 @@ class AnalyzeCanCsvTests(unittest.TestCase):
     def test_timestamp_wrap_is_reported_modulo_uint32(self):
         rows = io.StringIO("4294967280,STD,0x100,0,0,\n10,STD,0x100,0,0,\n")
         stats = analyze(rows)
-        self.assertIn("| STD | 0x100 | 2 | 0 | 26 | none observed | 0 |", render_report(stats))
+        self.assertIn("| STD | 0x100 | 2 | 0 | 0.026 | none observed | 0 |", render_report(stats))
 
     def test_rejects_invalid_rtr_payload_and_timestamp(self):
         with self.assertRaisesRegex(ValueError, "RTR frame must have empty payload"):
             parse_row(["1", "STD", "0x123", "1", "1", "AA"], 7)
-        with self.assertRaisesRegex(ValueError, "timestamp_ms outside uint32 range"):
+        with self.assertRaisesRegex(ValueError, "timestamp_us outside uint32 range"):
             parse_row(["4294967296", "STD", "0x123", "0", "0", ""], 8)
 
     def test_empty_capture_has_header_and_no_message_rows(self):
@@ -68,6 +68,24 @@ class AnalyzeCanCsvTests(unittest.TestCase):
                 self.assertEqual(main(), 2)
             self.assertIn("payload length does not match DLC", stderr.getvalue())
             self.assertNotIn("Traceback", stderr.getvalue())
+
+    def test_firmware_ids_without_prefix_are_hex(self):
+        # Firmware prints IDs as plain hex (can_frame_format.c): "300" is 0x300, "7E8" is 0x7E8.
+        rows = io.StringIO("STATUS,LOCK,500000\n1000,STD,300,1,0,AA\n2000,STD,7E8,1,0,BB\n3000,EXT,18DAF110,0,0,\n")
+        report = render_report(analyze(rows))
+        self.assertIn("| STD | 0x300 | 1 |", report)
+        self.assertIn("| STD | 0x7E8 | 1 |", report)
+        self.assertIn("| EXT | 0x18DAF110 | 1 |", report)
+
+    def test_candump_export_unwraps_timer(self):
+        from analyze_can_csv import write_candump
+        rows = io.StringIO("4294967000,STD,123,2,0,0102\n500,EXT,18DAF110,0,1,\n")
+        out = io.StringIO()
+        write_candump(rows, out)
+        self.assertEqual(out.getvalue().splitlines(), [
+            "(0000004294.967000) can0 123#0102",
+            "(0000004294.967796) can0 18DAF110#R",
+        ])
 
 if __name__ == "__main__":
     unittest.main()

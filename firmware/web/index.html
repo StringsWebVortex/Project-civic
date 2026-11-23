@@ -1,0 +1,2275 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vehicle Telemetry Dashboard</title><style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:13px/1.5 system-ui,sans-serif;background:#0d1117;color:#c9d1d9;min-height:100vh;padding:10px 12px 20px;transition:background .18s,color .18s;overscroll-behavior-x:none}
+.page-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px}
+.page-head h1{margin:0}
+#globalModeToggle{flex:0 0 auto;padding:7px 15px;border:1px solid #58a6ff;border-radius:7px;background:#1c3a5e;color:#e6edf3;font-size:.75rem;font-weight:800;letter-spacing:.04em;cursor:pointer}
+#writeModeBanner{display:none;margin:6px 0 9px;padding:7px 10px;border:1px solid #d97706;border-radius:7px;background:#3b2410;color:#ffdfaa;font-size:.72rem}
+.edit-overlay{position:fixed;inset:0;z-index:300;background:#000b;align-items:center;justify-content:center;padding:16px}
+.edit-dialog{width:min(440px,100%);background:#1b232d;border:1px solid #d97706;border-radius:12px;padding:15px;box-shadow:0 16px 45px #000b}
+body.write-mode .edit-dialog{background:#2b1d15;border-color:#ffad55;color:#fff0d8}
+body.write-mode{background:#20140f;color:#fff0d8}
+body.write-mode h1{color:#ffe6bd}
+body.write-mode #sideNav{background:#2a1b13;border-color:#a85d1d}
+body.write-mode #sideNav a{color:#e8c8a2}
+body.write-mode #sideNav a:hover,body.write-mode #sideNav a.active{background:#4b2b16;color:#ffd08a;border-color:#b86b22}
+body.write-mode #statusBar,body.write-mode #vehBar{background:#2a1c14;border-color:#8e5425;color:#f1d4ad}
+body.write-mode .card,body.write-mode .mcard,body.write-mode .dq-panel{background:#2b1d15;border-color:#885128;color:#ffedda}
+body.write-mode .card-title,body.write-mode .mcard-val,body.write-mode .mcard-title{color:#ffe1b8}
+body.write-mode thead th{color:#e6bd8c;border-color:#71421f}
+body.write-mode tbody td{border-color:#53331e}
+body.write-mode canvas{background:#21150f}
+body.write-mode .mtab{background:#372519;border-color:#895229;color:#e7c39d}
+body.write-mode .mtab.on,body.write-mode .btn,body.write-mode #globalModeToggle{background:#8a3f12;border-color:#ffad55;color:#fff1db}
+body.write-mode .btn:hover{background:#a84e16}
+body.write-mode .fld select,body.write-mode .fld input[type=text],body.write-mode .byte-row input{background:#21150f;border-color:#895229;color:#fff0dc}
+body.write-mode #writeModeBanner{display:block}
+@keyframes wpulse{0%,100%{filter:brightness(1);box-shadow:0 0 0 0 #ff8a1e00}50%{filter:brightness(1.55);box-shadow:0 0 18px 4px #ff8a1eaa}}
+body.write-mode #globalModeToggle,body.write-mode #writeModeBanner,body.write-mode #sideNav{animation:wpulse 1.2s ease-in-out infinite}
+body.write-mode{animation:wbg 1.2s ease-in-out infinite}
+@keyframes wbg{0%,100%{background-color:#1a1006}50%{background-color:#3a1d06}}
+@media(max-width:600px){.page-head{align-items:flex-start;flex-wrap:wrap}.page-head h1{font-size:1rem}#globalModeToggle{margin-left:auto}}
+#sideNav{position:fixed;z-index:200;left:0;top:0;bottom:0;width:280px;background:#111820;border-right:1px solid #30363d;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;padding:16px 0 calc(16px + env(safe-area-inset-bottom));gap:2px;box-shadow:5px 0 24px #000c;transform:translateX(-100%);transition:transform .28s cubic-bezier(.4,0,.2,1);scrollbar-width:thin}
+#sideNav.open{transform:translateX(0)}
+#navOverlay{position:fixed;z-index:199;inset:0;background:rgba(0,0,0,.55);opacity:0;pointer-events:none;transition:opacity .28s ease}
+#navOverlay.open{opacity:1;pointer-events:auto}
+#sideNav .nav-brand{font-size:.82rem;font-weight:800;color:#e6edf3;padding:12px 16px 10px;border-bottom:1px solid #30363d;margin-bottom:6px;white-space:nowrap}
+#sideNav .nav-label{display:block;font-size:.65rem;font-weight:700;color:#58a6ff;text-transform:uppercase;letter-spacing:.06em;padding:10px 16px 3px;margin-top:4px}
+#navSwipeHint{position:fixed;left:0;top:50%;transform:translateY(-50%);z-index:150;width:14px;height:80px;background:linear-gradient(90deg,rgba(88,166,255,.35),transparent);border-radius:0 10px 10px 0;pointer-events:none;opacity:.6;transition:opacity .3s}
+#sideNav a{display:block;white-space:nowrap;padding:9px 16px;margin:0 8px;border-radius:7px;color:#aeb8c4;text-decoration:none;font-size:.78rem;border:1px solid transparent;transition:background .15s,color .15s}
+#sideNav a:hover,#sideNav a.active{background:#1c2b3a;color:#79c0ff;border-color:#29445e}
+#sideNav .nav-spacer{flex:1}
+#sideNav .nav-foot{font-size:.62rem;color:#484f58;padding:8px 16px;text-align:center}
+#backTop{position:fixed;right:18px;bottom:22px;z-index:90;background:#1c3a5e;border:1px solid #58a6ff;color:#e6edf3;border-radius:20px;padding:8px 13px;font-weight:700;cursor:pointer;box-shadow:0 3px 12px #0008}
+@media(max-width:760px){body{padding:8px 9px 16px;overscroll-behavior-x:none;touch-action:pan-y}#sideNav{width:260px;touch-action:pan-y}#sideNav a{padding:8px 14px;font-size:.74rem}#backTop{right:12px;bottom:16px}}
+h1{font-size:1.1rem;font-weight:700;color:#c9d1d9;margin-bottom:10px;letter-spacing:.02em}
+/* ── top metric cards ── */
+.top-cards{display:grid;grid-template-columns:repeat(4,1fr) 220px;gap:8px;margin-bottom:8px;align-items:start}
+.mcard{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px 12px;position:relative}
+.mcard-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:2px}
+.mcard-title{font-size:.75rem;font-weight:600;color:#8b949e;letter-spacing:.04em;text-transform:uppercase}
+.badge{font-size:.65rem;font-weight:700;padding:1px 7px;border-radius:20px;letter-spacing:.03em}
+.badge-ok  {background:#1a3829;color:#56d364}
+.badge-warn{background:#3d2e08;color:#e3b341}
+.badge-alrt{background:#3d1212;color:#f85149}
+.badge-none{background:#21262d;color:#8b949e}
+.mcard-val{font-size:1.9rem;font-weight:700;line-height:1.05;color:#e6edf3;margin:3px 0 2px}
+.mcard-val small{font-size:.75rem;font-weight:400;color:#8b949e}
+.mcard-sub{font-size:.68rem;color:#8b949e;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.spark svg{display:block;width:100%;height:38px}
+/* ── quality side panel ── */
+.dq-panel{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px 12px}
+.dq-title{font-size:.72rem;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px}
+.dq-row{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.dq-name{font-size:.7rem;color:#8b949e;width:52px;flex-shrink:0}
+.dq-bar-wrap{flex:1;height:7px;background:#21262d;border-radius:3px;overflow:hidden}
+.dq-bar{height:7px;border-radius:3px;transition:width .5s}
+.dq-pct{font-size:.68rem;width:28px;text-align:right;flex-shrink:0}
+/* ── main grid ── */
+.main{display:grid;grid-template-columns:1fr 320px;gap:8px;margin-bottom:8px}
+.left-col{display:flex;flex-direction:column;gap:8px}
+.right-col{display:flex;flex-direction:column;gap:8px}
+/* ── cards ── */
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px 12px}
+.card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.card-title{font-size:.78rem;font-weight:700;color:#c9d1d9}
+.card-sub{font-size:.65rem;color:#8b949e}
+/* ── chart canvases ── */
+canvas{display:block;border-radius:4px;background:#0d1117}
+/* ── temp legend ── */
+.tleg{display:flex;gap:12px;font-size:.68rem;color:#8b949e;align-items:center}
+.tleg-dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:3px;vertical-align:middle}
+/* ── alerts table ── */
+table{width:100%;border-collapse:collapse;font-size:.72rem}
+thead th{color:#8b949e;padding:4px 8px;border-bottom:1px solid #30363d;text-align:left;font-weight:600;white-space:nowrap}
+tbody td{padding:4px 8px;border-bottom:1px solid #21262d;white-space:nowrap}
+.al-warn td{background:rgba(227,179,65,.07)}
+.al-crit td{background:rgba(248,81,73,.07)}
+/* ── status bar ── */
+#statusBar{font-size:.68rem;color:#8b949e;margin-bottom:8px;padding:4px 10px;background:#161b22;border:1px solid #30363d;border-radius:6px}
+/* ── CAN analyzer ── */
+.can-wrap{overflow-x:auto;max-height:300px;overflow-y:auto}
+.can-wrap table{font-size:.68rem;font-family:'ui-monospace',monospace}
+.can-wrap thead th{padding:3px 6px}
+.can-wrap tbody td{padding:2px 6px}
+.live-badge{font-size:.65rem;font-weight:700;padding:2px 8px;border-radius:20px;background:#1a3829;color:#56d364}
+.live-badge.off{background:#21262d;color:#8b949e}
+/* ── sig explorer ── */
+.sig-group{border:1px solid #21262d;border-radius:6px;margin-bottom:6px;overflow:hidden}
+.sig-group-hdr{padding:4px 10px;background:#1c2128;font-size:.7rem;font-weight:600;color:#79c0ff;border-bottom:1px solid #21262d}
+.sig-row{cursor:pointer}
+.sig-row:hover td{background:#1c2128}
+.sig-row.sel td{background:#162032}
+/* ── mode panel ── */
+.mode-tabs{display:flex;gap:6px;margin-bottom:8px}
+.mtab{padding:4px 14px;border-radius:6px;border:1px solid #30363d;background:#21262d;color:#8b949e;cursor:pointer;font-size:.75rem;font-weight:600}
+.mtab.on{background:#1c3a5e;border-color:#58a6ff;color:#c9d1d9}
+.fld{margin:6px 0}
+.fld label{font-size:.72rem;color:#8b949e;display:block;margin-bottom:2px}
+.fld select,.fld input[type=text]{padding:5px 8px;background:#21262d;border:1px solid #30363d;border-radius:5px;color:#e6edf3;font-size:.75rem}
+.byte-row{display:flex;gap:4px;flex-wrap:wrap;margin:4px 0}
+.byte-row>label{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:.65rem;color:#8b949e}
+.byte-row input{width:32px;text-align:center;padding:3px;background:#21262d;border:1px solid #30363d;border-radius:4px;color:#c9d1d9;font-family:monospace;font-size:.75rem}
+.btn{padding:5px 14px;border-radius:6px;border:1px solid #30363d;background:#1c3a5e;color:#c9d1d9;cursor:pointer;font-size:.75rem;font-weight:600;margin-right:6px}
+.btn:hover{background:#1f4878}
+.btn-sm{padding:3px 10px;font-size:.68rem}
+#txStat{margin-top:5px;font-size:.68rem;color:#8b949e;min-height:1.2em}
+/* ── full-width sections ── */
+.full{margin-bottom:8px}
+@media(max-width:900px){.top-cards{grid-template-columns:repeat(2,1fr)}.main{grid-template-columns:1fr}}
+body.detecting #deviceBanner~*:not(#settings):not(script){display:none}
+body.detecting #deviceBanner{font-size:1.05rem;padding:22px;text-align:center;margin-top:40px}
+/* ── Edit Layout Mode ── */
+@keyframes wiggle{0%{transform:rotate(-.7deg)}25%{transform:rotate(.7deg)}50%{transform:rotate(-.5deg)}75%{transform:rotate(.5deg)}100%{transform:rotate(-.7deg)}}
+body.edit-layout-mode .dash-panel{animation:wiggle .3s ease-in-out infinite;position:relative}
+body.edit-layout-mode .dash-panel.panel-hidden{opacity:.45}
+body.edit-layout-mode .dash-panel.panel-visible{opacity:1}
+.panel-edit-bar{display:none;position:absolute;top:4px;right:4px;z-index:50;gap:4px;align-items:center}
+body.edit-layout-mode .panel-edit-bar{display:flex}
+.panel-eye-btn{width:28px;height:28px;border-radius:50%;border:1px solid #58a6ff;background:#0d2238;color:#58a6ff;font-size:.85rem;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;padding:0}
+.panel-eye-btn:active{background:#1c3a5e}
+.panel-drag-handle{width:28px;height:28px;border-radius:50%;border:1px solid #30363d;background:#161b22;color:#8b949e;font-size:.8rem;cursor:grab;display:flex;align-items:center;justify-content:center;line-height:1;padding:0;touch-action:none}
+.panel-drag-handle:active{cursor:grabbing;background:#1c3a5e;color:#58a6ff}
+body.edit-layout-mode .dash-panel.drag-over{border:2px dashed #58a6ff !important}
+#editFinishBtn{display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:310;padding:12px 36px;border:2px solid #3fb950;border-radius:12px;background:#1a3829;color:#56d364;font-size:.9rem;font-weight:800;cursor:pointer;box-shadow:0 4px 20px #000a;letter-spacing:.04em}
+body.edit-layout-mode #editFinishBtn{display:block}
+</style></head><body>
+<div id="navOverlay"></div>
+<div id="navSwipeHint"></div>
+<nav id="sideNav" aria-label="Dashboard navigation">
+  <div class="nav-brand">CIVIC CAN<br><span style="font-size:.65rem;color:#8b949e;font-weight:500">Vehicle Monitor</span></div>
+  <div class="nav-label">Overview</div>
+  <a href="#top" class="active">⌂ Dashboard</a>
+  <a href="#events">⚑ Fault Events</a>
+  <a href="#canAnalyzer">⌁ CAN Analyzer</a>
+  <a href="#signalExplorer">◫ Signal Explorer</a>
+  <div class="nav-label">Diagnostics</div>
+  <a href="#controllers">▤ Controllers &amp; Bus</a>
+  <a href="#diagnostics">⚙ Fault Codes &amp; Sensors</a>
+  <a href="#operatingMode">⇄ Operating Mode</a>
+  <div class="nav-label">Settings</div>
+  <a href="#sigLearn">✓ Signal Learning</a>
+  <a href="#settings">⚙ Settings · Target device</a>
+  <a href="#canAbilities">⚡ bxCAN Abilities</a>
+  <div class="nav-label">Data &amp; Tools</div>
+  <a href="/log.csv">↓ Download Current Data</a>
+  <a href="/log.csv?historical=1">◷ Historical Data (CSV)</a>
+  <a href="#fwCard">↻ Firmware Update</a>
+  <div class="nav-spacer"></div>
+  <a href="javascript:void(0)" onclick="enterEditMode()" style="color:#58a6ff;font-weight:700">✎ Edit Dash Layout</a>
+  <a href="#top">↑ Back to Dashboard Top</a>
+  <div class="nav-foot">Navigation stays available while scrolling</div>
+</nav>
+<div id="top"></div>
+<div class="page-head"><h1 id="pageTitle">Vehicle Telemetry Dashboard</h1><button id="globalModeToggle" type="button" onclick="toggleGlobalMode()">ENTER WRITE MODE</button></div>
+<div id="deviceBanner" style="display:none;margin:6px 0 9px;padding:9px 11px;border:1px solid #58a6ff;border-radius:7px;background:#0d2238;color:#cfe6ff;font-size:.78rem"></div>
+<div id="writeModeBanner">WRITE MODE ACTIVE · Both buses are full CAN nodes (bxCAN Normal, TJA1051 S low): TX, UDS, ECU scan, periodic, gateway and every write protocol may transmit. Press EXIT WRITE MODE to return every protocol to read-only. <b id="writeState"></b></div>
+<div id="statusBar">Connecting…</div>
+<div id="vehBar" style="margin:6px 0 10px;padding:8px 12px;border:1px solid #30363d;border-radius:8px;font-size:.85rem">Key: <b>—</b></div>
+
+<!-- ══ TOP ROW: 4 metric cards + data quality panel ══ -->
+<div class="top-cards">
+
+  <!-- RPM -->
+  <div class="mcard">
+    <div class="mcard-head"><span class="mcard-title">RPM</span><span class="badge badge-none" id="b0C">NO DATA</span></div>
+    <div class="mcard-val" id="v0C">—<small> rpm</small></div>
+    <div class="mcard-sub" id="s0C">Avg — rpm</div>
+    <div class="spark"><svg id="sk0C" viewBox="0 0 260 38" preserveAspectRatio="none"><line x1="0" y1="30" x2="260" y2="30" stroke="#30363d" stroke-width="1"/></svg></div>
+  </div>
+
+  <!-- Coolant Temp -->
+  <div class="mcard">
+    <div class="mcard-head"><span class="mcard-title">Coolant Temp</span><span class="badge badge-none" id="b05">NO DATA</span></div>
+    <div class="mcard-val" id="v05">—<small> °C</small></div>
+    <div class="mcard-sub" id="s05">Range —–— °C</div>
+    <div class="spark"><svg id="sk05" viewBox="0 0 260 38" preserveAspectRatio="none"><line x1="0" y1="30" x2="260" y2="30" stroke="#30363d" stroke-width="1"/></svg></div>
+  </div>
+
+  <!-- Fuel Level -->
+  <div class="mcard">
+    <div class="mcard-head"><span class="mcard-title">Fuel Level</span><span class="badge badge-none" id="b2F">NO DATA</span></div>
+    <div class="mcard-val" id="v2F">—<small> %</small></div>
+    <div class="mcard-sub" id="s2F">Most common —</div>
+    <div class="spark"><svg id="sk2F" viewBox="0 0 260 38" preserveAspectRatio="none"><line x1="0" y1="30" x2="260" y2="30" stroke="#30363d" stroke-width="1"/></svg></div>
+  </div>
+
+  <!-- Battery Voltage -->
+  <div class="mcard">
+    <div class="mcard-head"><span class="mcard-title">Battery Voltage</span><span class="badge badge-none" id="b42">NO DATA</span></div>
+    <div class="mcard-val" id="v42">—<small> V</small></div>
+    <div class="mcard-sub" id="s42">Avg — V</div>
+    <div class="spark"><svg id="sk42" viewBox="0 0 260 38" preserveAspectRatio="none"><line x1="0" y1="30" x2="260" y2="30" stroke="#30363d" stroke-width="1"/></svg></div>
+  </div>
+
+  <!-- Data Quality panel (top-right, next to metric cards) -->
+  <div class="dq-panel">
+    <div class="dq-title">Data Quality <span style="font-weight:400;text-transform:none">Missing % by Metric</span></div>
+    <div id="dqRows"></div>
+  </div>
+
+</div><!-- end top-cards -->
+
+<!-- ══ Every installed controller / sensor, grouped by system ══ -->
+<div class="card full" id="systemsCard">
+  <div class="card-head"><span class="card-title">Vehicle Systems &mdash; Live Values</span><span class="live-badge off" id="sysState">WAITING</span></div>
+  <div style="font-size:.68rem;color:#8b949e;margin-bottom:6px">Every value the car provides, under its real name: SAE OBD-II Mode 01, passive F-CAN broadcast decoding, and Honda diagnostic DIDs (VTEC, knock, VTC, misfire per cylinder, oil temperature, shaft / turbine speeds, ATF temperature&hellip;) read from each control unit with service 22. DID reads are read-only and run only in key II with F-CAN ARMed (project safety rule); broadcast values need neither. Honda DID layouts: <span id="obdbSrc"></span>.</div>
+  <div style="font-size:.68rem;margin-bottom:6px"><label><input type="checkbox" id="obdbOn" checked onchange="if(this.checked&&hondaGearOn&&!obdbState.timer) obdbTick()"> Read Honda DIDs from every control unit (adds read-only requests while ARMed)</label></div>
+  <div id="sysCounts" style="font-size:.68rem;color:#8b949e;margin-bottom:6px"></div>
+  <div id="capIntegrity" style="font-size:.7rem;margin-bottom:6px;color:#3fb950">Capture integrity: waiting for frames.</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:10px">
+    <div><div style="font-size:.74rem;font-weight:700;margin-bottom:4px">Engine (R18Z1)</div><div style="max-height:420px;overflow:auto"><table style="width:100%;font-size:.66rem;border-collapse:collapse"><tbody id="sysEngine"></tbody></table></div></div>
+    <div><div style="font-size:.74rem;font-weight:700;margin-bottom:4px">Transmission (5AT)</div><div style="max-height:420px;overflow:auto"><table style="width:100%;font-size:.66rem;border-collapse:collapse"><tbody id="sysTrans"></tbody></table></div></div>
+    <div><div style="font-size:.74rem;font-weight:700;margin-bottom:4px">Chassis, body &amp; other controllers</div><div style="max-height:420px;overflow:auto"><table style="width:100%;font-size:.66rem;border-collapse:collapse"><tbody id="sysOther"></tbody></table></div></div>
+  </div>
+  <details style="margin-top:8px;font-size:.68rem"><summary>Honda DIDs with no published layout (raw replies, still polled &mdash; nothing is skipped)</summary>
+    <div style="max-height:260px;overflow:auto"><table style="width:100%;font-size:.64rem;border-collapse:collapse"><tbody id="sysRaw"></tbody></table></div></details>
+</div>
+
+<!-- ══ Decoded F-CAN broadcast signals (passive: no ARM, no requests) ══ -->
+<div class="card full" id="decSignals">
+  <div class="card-head"><span class="card-title">Decoded F-CAN Broadcast Signals</span><span class="live-badge off" id="decState">WAITING FOR F-CAN</span></div>
+  <div style="font-size:.68rem;color:#8b949e;margin-bottom:6px">Decoded by the STM32 from frames the PCM, VSA, EPS, steering sensor and gauge already broadcast on F-CAN &mdash; listen-only, works without ARM. Layouts are the Honda Nidec / Acura ILX 2016 definitions (opendbc, same platform as this Civic): treat every value as a <b>candidate</b> until it is confirmed on this car.</div>
+  <div style="margin-bottom:6px;font-size:.68rem"><input id="decFilter" placeholder="filter (e.g. GEAR, SPEED, 1A3)" style="font-size:.68rem;width:220px" oninput="drawDec()"> <span id="decCount" style="color:#8b949e"></span></div>
+  <div style="max-height:340px;overflow:auto"><table style="width:100%;font-size:.68rem;border-collapse:collapse"><thead><tr style="text-align:left;color:#8b949e"><th>ID</th><th>Message</th><th>Signal</th><th>Value</th><th>Age</th></tr></thead><tbody id="decBody"></tbody></table></div>
+</div>
+
+<!-- ══ Labelled state capture: SavvyCAN "Discrete State" method ══ -->
+<div class="card full" id="stateCapture">
+  <div class="card-head"><span class="card-title">State Capture &amp; Bit Finder</span><span class="live-badge off" id="capState">IDLE</span></div>
+  <div style="font-size:.68rem;color:#8b949e;margin-bottom:6px">Reverse-engineering aid (SavvyCAN Discrete-State method): put a control into one state (e.g. shift lever P), type the label, press Record; repeat for each state (R, N, D…). <b>Find bits</b> lists every CAN bit that stays constant inside each label but differs between labels. Uses the live frame table only (listen-only, no ARM). <b>Export CSV</b> saves the labelled samples as normal-operation baselines (cold start, idle, cruise…) for later analysis / ST Edge AI training.</div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:.68rem">
+    <input id="capLabel" placeholder="state label (P, R, N, D, brake on, idle…)" style="font-size:.68rem;width:220px">
+    <button class="btn" id="capBtn" onclick="capToggle()">Record</button>
+    <button class="btn" onclick="capAnalyze()">Find bits</button>
+    <button class="btn" onclick="capExport()">Export CSV</button>
+    <button class="btn" onclick="capClear()">Clear</button>
+    <span id="capInfo" style="color:#8b949e">no samples</span>
+  </div>
+  <div style="max-height:300px;overflow:auto;margin-top:6px"><table style="width:100%;font-size:.68rem;border-collapse:collapse"><thead id="capHead"></thead><tbody id="capBody"></tbody></table></div>
+</div>
+
+<!-- ══ DASHBOARD: every received live ECU sensor value ══ -->
+<div class="card full" id="liveEngineSensors">
+  <div class="card-head"><span class="card-title">Live Engine Sensors &amp; Parameters</span><span class="live-badge off" id="liveSensorState">WAITING FOR ECU DATA</span></div>
+  <div style="font-size:.68rem;color:#8b949e;margin-bottom:7px">F-CAN read-only polling (SAE Mode 01 sensors, Honda gear DID 2612, and DTC checks 03/07/0A + UDS 19/02 every 30 s) runs only in key position II while the F-CAN ARM window is explicitly active. It stops on key-off or ARM expiry; no diagnostic requests are sent while disarmed.</div>
+  <div id="autoPidState" style="font-size:.68rem;color:#8b949e;margin-bottom:6px">Automatic PID monitor: waiting for key II and F-CAN ARM.</div>
+  <div style="border:1px solid #30363d;border-radius:7px;padding:8px;margin:7px 0;background:#101820">
+    <div style="font-size:.72rem;font-weight:700">Honda transmission gear acquisition · UDS 22 2612</div>
+    <div id="hondaGearState" style="font-size:.65rem;color:#8b949e;margin:4px 0">Waiting for key II and F-CAN ARM.</div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:.72rem">
+      <span>Gear variant 2: <b id="hondaGearV2">—</b> <small>raw</small></span>
+      <span>Gear variant 3: <b id="hondaGearV3">—</b> <small>raw</small></span>
+      <span>Last reply: <b id="hondaGearAge">—</b></span>
+    </div>
+    <div style="font-size:.62rem;color:#8b949e;margin-top:4px">29-bit physical read DA0E→0E; response bits 352–359 and 368–375. Raw candidates until the returned values are checked against the shift lever on this vehicle.</div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:.68rem;margin-top:6px">
+      <label><input type="checkbox" id="gearLedOn" checked onchange="gearLedToggle()"> STM32 LED shift chase (LD4 green → LD3 orange → LD5 red → LD6 blue on upshift, reverse on downshift)</label>
+      <span>Source: <select id="gearLedSrc" style="font-size:.68rem" onchange="gearLedToggle()"><option value="bcast" selected>F-CAN broadcast 0x1A3 (passive, no ARM)</option><option value="v2">DID 2612 variant 2</option><option value="v3">DID 2612 variant 3</option></select></span>
+      <span>Last sent: <b id="gearLedLast">—</b></span>
+    </div>
+    <div style="font-size:.62rem;color:#8b949e;margin-top:3px">A gear is forwarded to the STM32 (GEAR,&lt;n&gt;) only after two consecutive identical replies; the STM32 animates only on a change and never drives a bus from it. The MB997 has four separate single-colour user LEDs (no RGB LED), so the light→dark colour order is mapped onto those four.</div>
+  </div>
+  <div style="border:1px solid #30363d;border-radius:7px;padding:8px;margin:7px 0;background:#101820">
+    <div style="font-size:.72rem;font-weight:700">R18Z1 5AT substitute candidates · ECU 1E (18DA1EF1 → 18DAF11E) · UDS 22 2301 / 22 2322 / 22 3086</div>
+    <div id="hondaAltState" style="font-size:.65rem;color:#8b949e;margin:4px 0">Waiting for key II and F-CAN ARM.</div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:.7rem;font-family:monospace">
+      <span>2301: <b id="hondaAlt2301">—</b></span>
+      <span>2322: <b id="hondaAlt2322">—</b></span>
+      <span>3086: <b id="hondaAlt3086">—</b></span>
+    </div>
+    <div style="font-size:.62rem;color:#8b949e;margin-top:4px">Read-only round-robin (one DID per 500 ms) interleaved with DID 2612. Raw response bytes after the 62 xx xx header are shown as hex so the owner can correlate them with the shift lever; negative responses (7F 22 xx) are shown as-is. Nothing is decoded or acted on from these values.</div>
+  </div>
+  <div class="can-wrap" style="max-height:250px;overflow:auto"><table><thead><tr><th>PID</th><th>Sensor / Parameter</th><th>Live value</th></tr></thead>
+    <tbody id="pidRows"><tr><td colspan="3" style="color:#8b949e">Waiting for engine / ECU telemetry…</td></tr></tbody></table></div>
+</div>
+
+<!-- ══ PERSISTENT DTC EVENT JOURNAL ══ -->
+<div class="card full" id="events">
+  <div class="card-head"><span class="card-title">Fault Event Journal</span><span class="card-sub" id="eventSummary">0 current · 0 historical</span></div>
+  <div style="font-size:.68rem;color:#8b949e;margin-bottom:7px">Each ECU-reported DTC is journaled with up to 60 seconds of pre-trigger and 10 seconds of post-trigger telemetry. Current alarms remain until marked seen; seen records move to history and survive reboot.</div>
+  <div class="can-wrap" style="max-height:240px;overflow:auto"><table><thead><tr><th>Captured</th><th>Bus / ECU</th><th>DTC</th><th>Source / repeats</th><th>Snapshot</th><th></th></tr></thead>
+    <tbody id="eventCurrent"><tr><td colspan="6" style="color:#8b949e">Waiting for event journal…</td></tr></tbody></table></div>
+  <details style="margin-top:8px"><summary style="cursor:pointer;color:#8b949e;font-size:.72rem">Historical events (marked seen)</summary>
+    <div class="can-wrap" style="max-height:240px;overflow:auto;margin-top:6px"><table><thead><tr><th>Captured</th><th>Bus / ECU</th><th>DTC</th><th>Source / repeats</th><th>Snapshot</th></tr></thead><tbody id="eventHistory"><tr><td colspan="5" style="color:#8b949e">No history yet.</td></tr></tbody></table></div>
+  </details>
+</div>
+
+<!-- ══ MAIN GRID: left charts + right panels ══ -->
+<div class="main">
+  <div class="left-col">
+
+    <!-- RPM Over Samples -->
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">RPM Over Samples</span>
+        <span class="card-sub" id="rpmSubLbl">— samples</span>
+      </div>
+      <canvas id="cRpm" height="200" style="width:100%"></canvas>
+    </div>
+
+    <!-- Temperatures -->
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">Temperatures</span>
+        <div class="tleg">
+          <span><span class="tleg-dot" style="background:#f85149"></span>Coolant</span>
+          <span><span class="tleg-dot" style="background:#e3b341"></span>Intake</span>
+          <span><span class="tleg-dot" style="background:#56d364"></span>Ambient</span>
+        </div>
+      </div>
+      <canvas id="cTemp" height="130" style="width:100%"></canvas>
+    </div>
+
+    <!-- Alerts -->
+    <div class="card">
+      <div class="card-head"><span class="card-title">Alerts</span><span class="card-sub" id="alCount">0 active</span></div>
+      <table>
+        <thead><tr><th>Status</th><th>Rule</th><th>Value</th><th>Time</th></tr></thead>
+        <tbody id="alBody"><tr><td colspan="4" style="color:#8b949e;padding:8px">No alerts.</td></tr></tbody>
+      </table>
+    </div>
+
+  </div><!-- end left-col -->
+
+  <div class="right-col">
+
+    <!-- RPM vs Throttle -->
+    <div class="card">
+      <div class="card-head"><span class="card-title">RPM vs Throttle</span></div>
+      <div style="display:grid;grid-template-columns:1fr 80px;gap:4px;margin-top:4px">
+        <canvas id="cScat" height="200" style="width:100%"></canvas>
+        <canvas id="cHist" height="200" style="width:100%"></canvas>
+      </div>
+      <div style="font-size:.63rem;color:#8b949e;margin-top:3px;text-align:center">Throttle (%)</div>
+    </div>
+
+  </div><!-- end right-col -->
+</div><!-- end main -->
+
+<!-- ══ FULL WIDTH: CAN Analyzer ══ -->
+<div class="card full" id="canAnalyzer">
+  <div class="card-head">
+    <span class="card-title">CAN Analyzer</span>
+    <span class="live-badge off" id="canBadge">WAITING FOR FRAMES</span>
+  </div>
+  <div class="can-wrap">
+    <table>
+      <thead><tr><th>ID</th><th>DLC</th><th>B0</th><th>B1</th><th>B2</th><th>B3</th><th>B4</th><th>B5</th><th>B6</th><th>B7</th><th>Rate</th><th>Frames</th><th>Time</th><th>Label</th><th></th></tr></thead>
+      <tbody id="canBody"><tr><td colspan="15" style="color:#8b949e;padding:10px">Waiting for incoming CAN frames…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ══ FULL WIDTH: Signal Explorer ══ -->
+<div class="card full" id="signalExplorer">
+  <div class="card-head">
+    <span class="card-title">Signal Explorer — All ECU Signals</span>
+    <span class="card-sub" id="sigCnt">0 signals</span>
+  </div>
+  <div style="max-height:380px;overflow-y:auto" id="sigExp"><p style="color:#8b949e;padding:8px">Waiting for PROFILE/SIG data…</p></div>
+</div>
+
+<!-- ══ FULL WIDTH: Controllers & bus health ══ -->
+<div class="card full" id="sigLearn">
+  <div class="card-head">
+    <span class="card-title">Signal Learning — DBC definitions checked on this car</span>
+    <span class="card-sub" id="slSum">waiting…</span>
+  </div>
+  <div style="font-size:.68rem;color:#8b949e;margin:2px 0 6px">SEED = community DBC, not seen yet · CHECKED = seen with the DBC length ·
+    VERIFIED = agrees with the official OBD-II value (PID 0C rpm / 0D speed) · CONFLICT = length or values disagree — do not trust.</div>
+  <div class="can-wrap" style="max-height:320px;overflow:auto"><table><thead><tr><th>ID</th><th>Message</th><th>State</th><th>Frames</th><th>Agree</th><th>Disagree</th><th>DLC seen</th></tr></thead>
+  <tbody id="slRows"><tr><td colspan="7" style="color:#8b949e">No data yet.</td></tr></tbody></table></div>
+</div>
+
+<div class="card full" id="settings">
+  <div class="card-head"><span class="card-title">Settings · Target device</span><span class="card-sub" id="devCurrent">—</span></div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+    <button class="btn btn-sm" onclick="devList(true)">Change target device</button>
+    <button class="btn btn-sm" onclick="devDetectNew()">Add / detect new device</button>
+  </div>
+  <table style="width:100%;font-size:.74rem"><thead><tr><th style="text-align:left">Device</th><th>F-CAN</th><th>B-CAN</th><th>IDs</th><th>Status</th><th></th></tr></thead>
+  <tbody id="devRows"><tr><td colspan="6" style="color:#8b949e">Press “Change target device” to list known devices.</td></tr></tbody></table>
+  <div style="margin-top:10px;font-size:.74rem;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+    <b>Log email</b> (sent at 70 % log fill; waits for internet)
+    To <input id="mailTo" value="stringswebvortex@gmail.com" style="width:200px">
+    From <input id="mailFrom" value="stringswebvortex@gmail.com" style="width:200px">
+    App password <input id="mailPass" type="password" autocomplete="off" style="width:150px">
+    <button class="btn btn-sm" onclick="mailSave()">Save</button>
+    <button class="btn btn-sm" onclick="wsSend({op:'mailsend'})">Send now</button>
+    <span id="mailState" style="color:#8b949e"></span>
+  </div>
+</div>
+<div class="card full" id="canAbilities">
+  <div class="card-head"><span class="card-title">bxCAN Abilities</span><span class="card-sub">RM0090 · per controller</span></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:.74rem;margin-bottom:8px">
+    Bus <select id="abBus" onchange="abRefresh()"><option value="F">CAN1 / F-CAN</option><option value="B">CAN2 / B-CAN</option></select>
+    <label><input type="checkbox" id="abABOM" onchange="abOpt('ABOM',this.checked)"> ABOM auto bus-off</label>
+    <label><input type="checkbox" id="abAWUM" onchange="abOpt('AWUM',this.checked)"> AWUM wake on bus</label>
+    <label><input type="checkbox" id="abNART" onchange="abOpt('NART',this.checked)"> NART one-shot</label>
+    <label><input type="checkbox" id="abRFLM" onchange="abOpt('RFLM',this.checked)"> RFLM keep oldest</label>
+    <label><input type="checkbox" id="abTXFP" onchange="abOpt('TXFP',this.checked)"> TXFP request order</label>
+    <label><input type="checkbox" id="abTTCM" onchange="abOpt('TTCM',this.checked)"> TTCM hw timestamp</label>
+    <label><input type="checkbox" id="abDBF" onchange="abOpt('DBF',this.checked)"> DBF debug freeze</label>
+    SJW <select id="abSJW" onchange="canCmd('OPT,'+abBus()+',SJW,'+this.value)"><option>1</option><option>2</option><option>3</option><option>4</option></select>
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:.74rem;margin-bottom:8px">
+    <button class="btn btn-sm" onclick="canCmd('ERRSTATE,'+abBus())">Error state</button>
+    <button class="btn btn-sm" onclick="canCmd('BUSOFF,'+abBus()+',RECOVER')">Bus-off recover</button>
+    <button class="btn btn-sm" onclick="canCmd('SLEEP,'+abBus())">Sleep</button>
+    <button class="btn btn-sm" onclick="canCmd('WAKE,'+abBus())">Wake</button>
+    CAN2 start bank <input id="abCan2sb" type="number" min="1" max="27" value="14" style="width:52px"><button class="btn btn-sm" onclick="canCmd('CAN2SB,'+$('abCan2sb').value)">Set</button>
+    <span id="abErr" style="color:#8b949e"></span>
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:.74rem">
+    Filter bank <input id="abBank" type="number" min="0" max="27" value="2" style="width:50px">
+    <select id="abFm"><option value="M">mask</option><option value="L">list</option></select>
+    <select id="abFs"><option>32</option><option>16</option></select>
+    FIFO <select id="abFf"><option>0</option><option>1</option></select>
+    FR1 <input id="abFr1" value="00000000" style="width:84px"> FR2 <input id="abFr2" value="00000000" style="width:84px">
+    <button class="btn btn-sm" onclick="canCmd(['FILTER',abBus(),$('abBank').value,$('abFm').value,$('abFs').value,$('abFf').value,$('abFr1').value,$('abFr2').value].join(','))">Program</button>
+    <button class="btn btn-sm" onclick="canCmd('FILTER,'+abBus()+','+$('abBank').value+',OFF')">Disable</button>
+    <button class="btn btn-sm" onclick="canCmd('FILTER,'+abBus()+',DEFAULT')">Accept all</button>
+    <span id="abFilt" style="color:#8b949e"></span>
+  </div>
+</div>
+<div class="card full" id="controllers">
+  <div class="card-head">
+    <span class="card-title">Controllers &amp; Bus Health</span>
+    <span class="card-sub" id="busSum">—</span>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;font-size:.72rem;margin-bottom:8px">
+    <div>Broadcast IDs<br><b id="bhIds">0</b></div>
+    <div>Frames/s<br><b id="bhFps">0</b></div>
+    <div>Bus load (est.)<br><b id="bhLoad">—</b></div>
+    <div>CAN state<br><b id="bhState">—</b></div>
+    <div>TEC / REC<br><b id="bhTecRec">—</b></div>
+    <div>Bus errors / LEC<br><b id="bhErr">—</b></div>
+    <div>Dropped (queue/UART)<br><b id="bhDrop">—</b></div>
+  </div>
+  <div style="font-size:.65rem;color:#8b949e;margin-bottom:6px">Broadcast frames do not carry the sender's address, so controllers are counted by the diagnostic scan below (needs ARM; each address gets one read-only request).</div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+    <button class="btn btn-sm" onclick="scanEcu('obd')">Scan OBD 11-bit (7E0-7E7, 01 00)</button>
+    <button class="btn btn-sm" onclick="scanEcu('uds')">Scan UDS 11-bit (7E0-7E7, 3E 00)</button>
+    <button class="btn btn-sm" onclick="scanEcu('x29')">Scan 29-bit (18DAxxF1, 3E 00)</button>
+    <button class="btn btn-sm" onclick="wsSend({op:'ecuscan_abort'})">Stop scan</button>
+    <button class="btn btn-sm" onclick="identifyAll()">Identify all</button>
+  </div>
+  <div class="can-wrap" style="max-height:260px;overflow:auto">
+    <table><thead><tr><th>Request</th><th>Response</th><th>First reply</th><th>Identity</th><th></th></tr></thead>
+    <tbody id="ecuRows"><tr><td colspan="5" style="color:#8b949e">No scan yet.</td></tr></tbody></table>
+  </div>
+</div>
+
+<!-- ══ FULL WIDTH: Diagnostics (DTC / reset / live PIDs) ══ -->
+<div class="card full" id="diagnostics">
+  <div class="card-head"><span class="card-title">Fault Codes &amp; Live Sensors</span><span class="card-sub" id="dtcSum">—</span></div>
+  <div style="font-size:.65rem;color:#8b949e;margin-bottom:6px">Needs ARM. Reads go to every controller found by the scan (or the engine ECU at 7E0 if no scan was run).</div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+    <button class="btn btn-sm" onclick="readDtcs()">Read all DTCs</button>
+    <button class="btn btn-sm" onclick="clearDtcs()">Clear all DTCs</button>
+    <select id="rstEcu" style="min-width:160px"></select>
+    <select id="rstType"><option value="01">Hard reset (01)</option><option value="03">Soft reset (03)</option><option value="02">Key off/on (02)</option></select>
+    <button class="btn btn-sm" onclick="ecuReset()">ECU reset</button>
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:end;margin-bottom:6px">
+    <div class="fld"><label>Controller</label><select id="wrEcu" style="min-width:160px"></select></div>
+    <div class="fld"><label>DID / routine (hex, 4)</label><input type="text" id="wrDid" maxlength="4" placeholder="F190" style="width:80px"></div>
+    <div class="fld"><label>Data (hex)</label><input type="text" id="wrData" maxlength="96" placeholder="" style="width:200px"></div>
+    <button class="btn btn-sm" onclick="didOp('read')">Read value (22)</button>
+    <button class="btn btn-sm" onclick="didOp('write')">Write value (2E)</button>
+    <button class="btn btn-sm" onclick="didOp('io')">Override output (2F 03)</button>
+    <button class="btn btn-sm" onclick="didOp('ioret')">Return control (2F 00)</button>
+    <button class="btn btn-sm" onclick="didOp('routine')">Start routine (31 01)</button>
+    <button class="btn btn-sm" onclick="didOp('session')">Extended session (10 03)</button>
+  </div>
+  <div id="wrOut" style="font-size:.7rem;font-family:monospace;color:#c9d1d9;margin-bottom:6px"></div>
+  <div class="can-wrap" style="max-height:240px;overflow:auto"><table><thead><tr><th>Controller</th><th>DTC</th><th>Source</th><th>Status</th></tr></thead>
+    <tbody id="dtcRows"><tr><td colspan="4" style="color:#8b949e">Not read yet.</td></tr></tbody></table></div>
+</div>
+
+<!-- ══ FULL WIDTH: Operating Mode ══ -->
+<div class="card full" id="operatingMode">
+  <div class="card-head"><span class="card-title">Operating Mode</span></div>
+  <div id="pnlR"><p style="font-size:.75rem;color:#8b949e">Read telemetry stays active and visible in both display modes. Switching the dashboard palette does not stop engine data, CAN capture, alerts, or event recording.</p></div>
+  <div class="card" style="margin-top:8px">
+    <div class="card-h">Dual-bus &amp; advanced control</div>
+    <div style="padding:8px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+      <div class="fld"><label>Active bus (all write commands)</label>
+        <select id="busSel" onchange="setBus(this.value)"><option value="F">F-CAN (powertrain)</option><option value="B">B-CAN (body)</option></select></div>
+      <div class="fld"><label>Controller mode</label>
+        <select id="modeSel"><option>SILENT</option><option>NORMAL</option><option>LOOPBACK</option><option>LOOPBACKSILENT</option></select>
+        <button class="btn btn-sm" onclick="wsSend({op:'mode',mode:document.getElementById('modeSel').value})">Set</button></div>
+      <div class="fld"><label>Bitrate (AUTO or Hz)</label>
+        <input id="brVal" value="AUTO" style="width:90px"><button class="btn btn-sm" onclick="wsSend({op:'bitrate',value:document.getElementById('brVal').value.trim().toUpperCase()})">Set</button></div>
+      <div class="fld"><label>Gateway F&harr;B</label>
+        <button class="btn btn-sm" onclick="wsSend({op:'gateway',on:true})">On</button>
+        <button class="btn btn-sm" onclick="wsSend({op:'gateway',on:false})">Off</button></div>
+      <span id="busState" class="card-sub">Active bus: F-CAN (powertrain)</span>
+    </div>
+    <div style="padding:8px;border-top:1px solid #30363d">
+      <b style="font-size:.8rem">Remote engine start</b>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-top:6px">
+        <div class="fld"><label>Auto-release timeout (s)</label><input id="rsTo" value="2" style="width:70px"></div>
+        <label style="font-size:.75rem"><input type="checkbox" id="rsNeutral"> In Park/Neutral</label>
+        <label style="font-size:.75rem"><input type="checkbox" id="rsBrake"> Brake pressed</label>
+        <label style="font-size:.75rem"><input type="checkbox" id="rsImmob"> Immobilizer OK</label>
+        <button class="btn btn-sm" onclick="doStartCfg()">Apply safety</button>
+        <button class="btn" id="startBtn" disabled title="Turn the key to position II (ON) first" style="background:#1f6f3f;color:#fff;opacity:.35;cursor:not-allowed" onclick="doStart()">START engine</button>
+        <button class="btn btn-sm" onclick="wsSend({op:'start_cancel'})">Cancel</button>
+      </div>
+      <p style="font-size:.7rem;color:#8b949e;margin:6px 0 0">The starter releases the instant the ECU reports the engine running (RPM over threshold), or after the timeout if it never catches. Requires the active bus ARMed; the interlocks you tick are your attestation that the car is safe to crank.</p>
+    </div>
+  </div>
+  <div id="pnlW" style="display:none">
+    <div class="card" style="margin-bottom:10px;border-color:#d97706">
+      <div class="card-head"><span class="card-title">Decoded-value edit staging</span><span class="card-sub" id="editDraftCount">0 staged</span></div>
+      <p style="font-size:.68rem;color:#8b949e;margin-bottom:6px">Write display mode mein Live Engine Sensors ki value ko double-tap karein. Mobile keyboard khulay ga. Send value ko local staging list mein rakhega; generic sensor measurements ke liye verified ECU write encoder/address available nahi, is liye is action se CAN transmission nahi hoti.</p>
+      <div class="can-wrap" style="max-height:170px;overflow:auto"><table><thead><tr><th>Field</th><th>Observed</th><th>Proposed</th><th>Status</th></tr></thead><tbody id="editDraftRows"><tr><td colspan="4" style="color:#8b949e">No staged edits.</td></tr></tbody></table></div>
+    </div>
+    <div style="display:grid;grid-template-columns:160px 200px 1fr;gap:10px;align-items:end">
+      <div class="fld"><label>Format</label><select id="txFmt" style="width:100%"><option value="S">Standard 11-bit</option><option value="E">Extended 29-bit</option></select></div>
+      <div class="fld"><label>CAN ID (hex)</label><input type="text" id="txId" placeholder="7DF" maxlength="8" style="width:100%"></div>
+      <div class="fld" style="display:flex;align-items:center;gap:10px;padding-bottom:1px">
+        <div><label>DLC</label><input type="text" id="txDlc" placeholder="8" maxlength="1" style="width:40px"></div>
+        <div style="display:flex;align-items:center;gap:4px;margin-top:14px"><input type="checkbox" id="txRtr"><label for="txRtr" style="font-size:.72rem;color:#8b949e">RTR</label></div>
+      </div>
+    </div>
+    <div class="fld"><label>Data Bytes</label>
+      <div class="byte-row">
+        <label>B0<input type="text" id="b0" maxlength="2" placeholder="00"></label>
+        <label>B1<input type="text" id="b1" maxlength="2" placeholder="00"></label>
+        <label>B2<input type="text" id="b2" maxlength="2" placeholder="00"></label>
+        <label>B3<input type="text" id="b3" maxlength="2" placeholder="00"></label>
+        <label>B4<input type="text" id="b4" maxlength="2" placeholder="00"></label>
+        <label>B5<input type="text" id="b5" maxlength="2" placeholder="00"></label>
+        <label>B6<input type="text" id="b6" maxlength="2" placeholder="00"></label>
+        <label>B7<input type="text" id="b7" maxlength="2" placeholder="00"></label>
+      </div>
+    </div>
+    <button class="btn" onclick="sendFrame()">Send Frame</button>
+    <button class="btn btn-sm" onclick="loadDef()">Load Default</button>
+    <div id="txStat"></div>
+    <div style="margin-top:12px;border-top:1px solid #30363d;padding-top:10px">
+      <div style="font-size:.75rem;font-weight:700;color:#e3b341;margin-bottom:6px">Transmit arming</div>
+      <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+        <div class="fld"><label>Arm window (s, 1-600)</label><input type="text" id="armSec" value="60" maxlength="3" style="width:70px"></div>
+        <button class="btn" onclick="doArm()">ARM</button>
+        <button class="btn btn-sm" onclick="doDisarm()">DISARM</button>
+        <span id="armState" style="font-size:.75rem;color:#8b949e">Disarmed (silent, receive-only)</span>
+      </div>
+    </div>
+    <div style="margin-top:12px;border-top:1px solid #30363d;padding-top:10px">
+      <div style="font-size:.75rem;font-weight:700;color:#e3b341;margin-bottom:6px">Diagnostics (ISO-TP / UDS / OBD-II) — needs ARM</div>
+      <div style="display:grid;grid-template-columns:140px 120px 120px 1fr;gap:8px;align-items:end">
+        <div class="fld"><label>Format</label><select id="udsFmt" style="width:100%"><option value="S">Standard 11-bit</option><option value="E">Extended 29-bit</option></select></div>
+        <div class="fld"><label>Request ID</label><input type="text" id="udsTx" value="7DF" maxlength="8" style="width:100%"></div>
+        <div class="fld"><label>Response ID</label><input type="text" id="udsRx" value="7E8" maxlength="8" style="width:100%"></div>
+        <div class="fld"><label>Request bytes (hex)</label><input type="text" id="udsReq" placeholder="0902" maxlength="128" style="width:100%"></div>
+      </div>
+      <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn" onclick="sendUds()">Send request</button>
+        <button class="btn btn-sm" onclick="preset('03')">OBD read DTCs (03)</button>
+        <button class="btn btn-sm" onclick="preset('0902')">OBD read VIN (09 02)</button>
+        <button class="btn btn-sm" onclick="preset('04')">OBD clear DTCs (04)</button>
+        <button class="btn btn-sm" onclick="preset('1902FF')">UDS read DTCs (19 02 FF)</button>
+        <button class="btn btn-sm" onclick="preset('14FFFFFF')">UDS clear DTCs (14)</button>
+        <button class="btn btn-sm" onclick="preset('1101')">UDS ECU reset (11 01)</button>
+        <button class="btn btn-sm" onclick="preset('1003')">Extended session (10 03)</button>
+        <button class="btn btn-sm" onclick="preset('3E00')">Tester present (3E 00)</button>
+        <button class="btn btn-sm" onclick="wsSend({op:'uds_abort'})">Abort</button>
+      </div>
+      <div style="font-size:.65rem;color:#8b949e;margin-top:4px">Routine control (31 ..) and other services: type the bytes. ECU addresses and routine IDs are not published by Honda; find them on your car.</div>
+      <pre id="udsLog" style="margin-top:6px;max-height:160px;overflow:auto;font-size:.68rem;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:6px;white-space:pre-wrap"></pre>
+    </div>
+  </div>
+</div>
+
+<div id="fieldEditor" class="edit-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="fieldEditorTitle">
+  <div class="edit-dialog">
+    <div class="card-head"><b id="fieldEditorTitle">Stage decoded value</b><button class="btn btn-sm" type="button" onclick="closeFieldEditor()">Cancel</button></div>
+    <div id="fieldEditorMeta" style="font-size:.68rem;color:#8b949e;margin-bottom:7px"></div>
+    <label for="fieldEditInput" style="font-size:.7rem;color:#8b949e">Proposed numeric value</label>
+    <input id="fieldEditInput" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" style="width:100%;padding:10px;margin:5px 0 9px;background:#111820;border:1px solid #8b5429;border-radius:6px;color:#fff0d8;font-size:1rem">
+    <button class="btn" id="fieldEditorSend" type="button" onclick="submitFieldEdit()">Send to staging</button>
+    <p style="font-size:.64rem;color:#e3b341;margin-top:7px">This stages a proposal only. It does not write a sensor, ECU register, actuator, or CAN signal.</p>
+  </div>
+</div>
+
+<script>
+/* ── state ── */
+const pid$  = {};  // pid→[{ts,v}] max300
+const prof$ = {};  // id→{dlc,rate,label}
+const sig$  = {};  // "id:b"→{last,min,max,rate,label,hist:[]}
+const frm$  = {};  // id→{n,rate,ts,bytes:[],prev:[],dlc,label}
+const alts  = [];  // [{type,rule,val,time}]
+const scat  = [];  // [{thr,rpm}] max500
+const seen$ = {};  // pid→epoch
+let   sock  = null;
+const $     = id => document.getElementById(id);
+const clamp = (v,lo,hi) => Math.max(lo,Math.min(hi,v));
+const avg   = a  => a.length ? a.reduce((s,x)=>s+x,0)/a.length : 0;
+
+/* ── metric card config ── */
+const CARDS = {
+  '0C':{el:'0C', unit:'rpm',  color:'#58a6ff', wdir:null,  wval:0,    wlbl:''},
+  '05':{el:'05', unit:'°C',   color:'#3fb950', wdir:'>=',  wval:105,  wlbl:'Hot'},
+  '2F':{el:'2F', unit:'%',    color:'#e3b341', wdir:'<=',  wval:30,   wlbl:'Low'},
+  '42':{el:'42', unit:'V',    color:'#f85149', wdir:'<=',  wval:12.0, wlbl:'Alert'},
+};
+
+/* ── sparkline ── */
+function drawSpark(svgId, samples, color){
+  const el=$(svgId); if(!el||samples.length<2) return;
+  const W=260,H=38,PAD=4;
+  const mn=Math.min(...samples), mx=Math.max(...samples), rng=Math.max(mx-mn,0.001);
+  const pts=samples.map((v,i)=>{
+    const x=(i/(samples.length-1))*W;
+    const y=H-PAD-((v-mn)/rng)*(H-PAD*2);
+    return x.toFixed(1)+','+y.toFixed(1);
+  }).join(' ');
+  el.innerHTML='<polyline points="'+pts+'" fill="none" stroke="'+color+'" stroke-width="1.8"/>';
+}
+
+/* ── update metric card ── */
+function updCard(pid, val){
+  const c=CARDS[pid]; if(!c) return;
+  const smp=(pid$[pid]||[]).map(x=>x.v);
+  /* value */
+  const d=pid==='42'?val.toFixed(2):pid==='0C'?Math.round(val).toString():val.toFixed(1);
+  $('v'+c.el).innerHTML=d+'<small> '+c.unit+'</small>';
+  /* badge */
+  const bEl=$('b'+c.el);
+  let cls='badge ', txt='';
+  if(c.wdir===null){ cls+='badge-ok'; txt='LIVE'; }
+  else {
+    const trig=(c.wdir==='>='&&val>=c.wval)||(c.wdir==='<='&&val<=c.wval);
+    if(trig){ cls+=(c.wdir==='>='?'badge-warn':'badge-alrt'); txt=c.wlbl; }
+    else     { cls+='badge-ok'; txt='OK'; }
+  }
+  bEl.className=cls; bEl.textContent=txt;
+  /* sub-label */
+  const sEl=$('s'+c.el);
+  if(pid==='0C'){
+    sEl.textContent='Avg '+Math.round(avg(smp))+' rpm';
+  } else if(pid==='05'){
+    const mn=smp.length?Math.min(...smp).toFixed(0):'—';
+    const mx=smp.length?Math.max(...smp).toFixed(0):'—';
+    sEl.textContent='Range '+mn+'–'+mx+' °C';
+  } else if(pid==='2F'){
+    const freq={};
+    smp.forEach(v=>{const k=Math.round(v);freq[k]=(freq[k]||0)+1;});
+    let mV='—',mC=0;
+    for(const[k,c2] of Object.entries(freq)) if(c2>mC){mC=c2;mV=k;}
+    sEl.textContent='Most common '+(mV!=='—'?mV+'% ('+mC+'x)':'—');
+  } else if(pid==='42'){
+    sEl.textContent='Avg '+avg(smp).toFixed(2)+' V';
+  }
+  /* sparkline */
+  drawSpark('sk'+c.el, smp, c.color);
+}
+
+/* ── data quality ── */
+const DQ=[
+  {pid:'0C',name:'RPM'},{pid:'05',name:'Coolant'},{pid:'0F',name:'Intake'},
+  {pid:'46',name:'Ambient'},{pid:'2F',name:'Fuel'},{pid:'42',name:'Voltage'},
+  {pid:'10',name:'MAF'},{pid:'04',name:'Load'},
+];
+function updQuality(){
+  const now=Date.now();
+  $('dqRows').innerHTML=DQ.map(({pid,name})=>{
+    const ls=seen$[pid];
+    const miss=ls?Math.min(100,Math.floor((now-ls)/1000)):100;
+    const pct=100-miss;
+    const col=miss<30?'#56d364':miss<70?'#e3b341':'#f85149';
+    return `<div class="dq-row">
+      <span class="dq-name">${name}</span>
+      <div class="dq-bar-wrap"><div class="dq-bar" style="width:${pct}%;background:${col}"></div></div>
+      <span class="dq-pct" style="color:${col}">${miss}%</span>
+    </div>`;
+  }).join('');
+}
+
+/* ── alerts ── */
+const ALT_RULES=[
+  {pid:'05',rule:'Coolant Temp High', unit:'°C', chk:v=>v>=105, type:'warn'},
+  {pid:'2F',rule:'Fuel Level Low',    unit:'%',  chk:v=>v<=30,  type:'warn'},
+  {pid:'42',rule:'Battery Voltage Low',unit:'V', chk:v=>v<=12.0,type:'crit'},
+];
+function chkAlerts(pid,val){
+  for(const r of ALT_RULES){
+    if(r.pid!==pid) continue;
+    if(r.chk(val)){
+      const t=new Date().toTimeString().slice(0,8);
+      const v=r.unit==='V'?val.toFixed(2):Math.round(val);
+      if(!alts.length||alts[0].rule!==r.rule){
+        alts.unshift({type:r.type,rule:r.rule,val:v+' '+r.unit,time:t});
+        if(alts.length>20) alts.pop();
+      }
+    }
+  }
+}
+function updAlerts(){
+  $('alCount').textContent=alts.length+' active';
+  if(!alts.length){
+    $('alBody').innerHTML='<tr><td colspan="4" style="color:#8b949e;padding:8px">No alerts.</td></tr>';
+    return;
+  }
+  $('alBody').innerHTML=alts.map(a=>{
+    const ic=a.type==='crit'?'<span style="color:#f85149">&#9679;</span>':'<span style="color:#e3b341">&#9651;</span>';
+    return `<tr class="${a.type==='crit'?'al-crit':'al-warn'}"><td>${ic}</td><td>${a.rule}</td><td style="font-family:monospace">${a.val}</td><td style="color:#8b949e">${a.time}</td></tr>`;
+  }).join('');
+}
+
+/* ── RPM chart ── */
+function drawRpm(){
+  const c=$('cRpm'); if(!c) return;
+  const dpr=window.devicePixelRatio||1, W=c.clientWidth||600, H=200;
+  c.width=W*dpr; c.height=H*dpr;
+  const ctx=c.getContext('2d'); ctx.scale(dpr,dpr);
+  const L=38,R=8,T=12,B=22;
+  ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,W,H);
+  const pts=(pid$['0C']||[]).map(x=>x.v);
+  const YMAX=6000;
+  /* grid */
+  ctx.strokeStyle='#21262d'; ctx.lineWidth=1;
+  ctx.fillStyle='#6e7681'; ctx.font='9px system-ui'; ctx.textAlign='right';
+  [0,1000,2000,3000,4000,5000,6000].forEach(y=>{
+    const py=T+(YMAX-y)/YMAX*(H-T-B);
+    ctx.beginPath(); ctx.moveTo(L,py); ctx.lineTo(W-R,py); ctx.stroke();
+    if(y<6000) ctx.fillText(y,L-3,py+3);
+  });
+  /* x labels */
+  ctx.textAlign='center'; ctx.fillStyle='#6e7681';
+  [50,100,150,200,250,300].forEach(n=>{
+    if(n>pts.length) return;
+    const px=L+(n/300)*(W-L-R);
+    ctx.beginPath(); ctx.moveTo(px,H-B); ctx.lineTo(px,H-B+3); ctx.strokeStyle='#30363d'; ctx.stroke();
+    ctx.fillText(n,px,H-6);
+  });
+  /* line */
+  if(pts.length>=2){
+    ctx.strokeStyle='#58a6ff'; ctx.lineWidth=1.6; ctx.lineJoin='round';
+    ctx.beginPath();
+    pts.forEach((v,i)=>{
+      const px=L+(i/Math.max(pts.length-1,1))*(W-L-R);
+      const py=T+(YMAX-clamp(v,0,YMAX))/YMAX*(H-T-B);
+      i?ctx.lineTo(px,py):ctx.moveTo(px,py);
+    });
+    ctx.stroke();
+  } else {
+    ctx.fillStyle='#30363d'; ctx.textAlign='center'; ctx.font='12px system-ui';
+    ctx.fillText('Waiting for RPM…',W/2,H/2);
+  }
+  $('rpmSubLbl').textContent=pts.length+' samples';
+}
+
+/* ── Temperature chart ── */
+function drawTemp(){
+  const c=$('cTemp'); if(!c) return;
+  const dpr=window.devicePixelRatio||1, W=c.clientWidth||600, H=130;
+  c.width=W*dpr; c.height=H*dpr;
+  const ctx=c.getContext('2d'); ctx.scale(dpr,dpr);
+  const L=32,R=8,T=8,B=18,YMIN=50,YMAX=150;
+  ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle='#21262d'; ctx.lineWidth=1;
+  ctx.fillStyle='#6e7681'; ctx.font='9px system-ui'; ctx.textAlign='right';
+  [50,75,100,125,150].forEach(y=>{
+    const py=T+(YMAX-y)/(YMAX-YMIN)*(H-T-B);
+    ctx.beginPath(); ctx.moveTo(L,py); ctx.lineTo(W-R,py); ctx.stroke();
+    ctx.fillText(y,L-3,py+3);
+  });
+  [
+    {pid:'05',col:'#f85149'},
+    {pid:'0F',col:'#e3b341'},
+    {pid:'46',col:'#56d364'},
+  ].forEach(({pid,col})=>{
+    const d=(pid$[pid]||[]).map(x=>x.v);
+    if(d.length<2) return;
+    ctx.strokeStyle=col; ctx.lineWidth=1.6; ctx.lineJoin='round';
+    ctx.beginPath();
+    d.forEach((v,i)=>{
+      const px=L+(i/Math.max(d.length-1,1))*(W-L-R);
+      const py=T+(YMAX-clamp(v,YMIN,YMAX))/(YMAX-YMIN)*(H-T-B);
+      i?ctx.lineTo(px,py):ctx.moveTo(px,py);
+    });
+    ctx.stroke();
+  });
+}
+
+/* ── Scatter + histogram ── */
+function drawScat(){
+  /* scatter */
+  const cs=$('cScat'); if(!cs) return;
+  const dpr=window.devicePixelRatio||1;
+  {
+    const W=cs.clientWidth||220, H=200;
+    cs.width=W*dpr; cs.height=H*dpr;
+    const ctx=cs.getContext('2d'); ctx.scale(dpr,dpr);
+    const L=30,R=4,T=6,B=18;
+    ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,W,H);
+    ctx.strokeStyle='#21262d'; ctx.lineWidth=1;
+    ctx.fillStyle='#6e7681'; ctx.font='8px system-ui';
+    [0,1000,2000,3000,4000].forEach(y=>{
+      const py=T+(4000-y)/4000*(H-T-B);
+      ctx.beginPath(); ctx.moveTo(L,py); ctx.lineTo(W-R,py); ctx.stroke();
+      ctx.textAlign='right'; ctx.fillText(y||'0',L-2,py+3);
+    });
+    [0,25,50,75,100].forEach(x=>{
+      const px=L+x/100*(W-L-R);
+      ctx.beginPath(); ctx.moveTo(px,T); ctx.lineTo(px,H-B); ctx.stroke();
+      ctx.textAlign='center'; ctx.fillText(x,px,H-4);
+    });
+    ctx.fillStyle='rgba(88,166,255,0.6)';
+    scat.forEach(p=>{
+      const px=L+clamp(p.thr,0,100)/100*(W-L-R);
+      const py=T+(4000-clamp(p.rpm,0,4000))/4000*(H-T-B);
+      ctx.beginPath(); ctx.arc(px,py,2.5,0,Math.PI*2); ctx.fill();
+    });
+  }
+  /* histogram */
+  const ch=$('cHist'); if(!ch) return;
+  {
+    const W=ch.clientWidth||80, H=200;
+    ch.width=W*dpr; ch.height=H*dpr;
+    const ctx=ch.getContext('2d'); ctx.scale(dpr,dpr);
+    const L=4,R=4,T=6,B=18;
+    ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,W,H);
+    const bkt=new Array(10).fill(0);
+    scat.forEach(p=>{ bkt[clamp(Math.floor(p.thr/10),0,9)]++; });
+    const mx=Math.max(...bkt,1);
+    const bw=(W-L-R)/10;
+    bkt.forEach((n,i)=>{
+      const bh=(n/mx)*(H-T-B);
+      const x=L+i*bw;
+      ctx.fillStyle='#1c3a5e'; ctx.fillRect(x+1,T+H-T-B-bh,bw-2,bh);
+      ctx.fillStyle='#58a6ff'; ctx.fillRect(x+1,T+H-T-B-bh,bw-2,2);
+    });
+    ctx.fillStyle='#6e7681'; ctx.font='7px system-ui'; ctx.textAlign='center';
+    bkt.forEach((_,i)=>ctx.fillText(i*10+'%',L+i*bw+bw/2,H-4));
+  }
+}
+
+/* ── CAN Analyzer ── */
+function updCAN(){
+  const ids=Object.keys(frm$).sort((a,b)=>(frm$[b].rate||0)-(frm$[a].rate||0)).slice(0,60);
+  if(!ids.length){
+    $('canBody').innerHTML='<tr><td colspan="15" style="color:#8b949e;padding:8px">Waiting…</td></tr>';
+    $('canBadge').textContent='WAITING FOR FRAMES'; $('canBadge').className='live-badge off';
+    return;
+  }
+  $('canBadge').textContent='LIVE · '+ids.length+' IDs'; $('canBadge').className='live-badge';
+  $('canBody').innerHTML=ids.map(id=>{
+    const s=frm$[id];
+    const t=new Date(s.ts).toTimeString().slice(0,8);
+    const bCells=Array.from({length:8},(_,i)=>{
+      const b=s.bytes[i]||'--', p=s.prev[i];
+      const col=b!=='--'&&p!==undefined&&p!==b?'#f85149':(b!=='--'?'#56d364':'#30363d');
+      return `<td style="color:${col}">${b}</td>`;
+    }).join('');
+    const lbl=s.label||'';
+    return `<tr><td>${id}</td><td>${s.dlc||'—'}</td>${bCells}<td>${s.rate?s.rate.toFixed(1):'—'} Hz</td><td>${s.n}</td><td style="color:#8b949e">${t}</td><td id="lbl_${id}" style="color:#79c0ff;max-width:120px;overflow:hidden;text-overflow:ellipsis">${esc(lbl)}</td><td><button class="btn btn-sm" onclick="editFrameLabel('${id}')" style="padding:1px 6px;font-size:.6rem">✎</button></td></tr>`;
+  }).join('');
+}
+
+/* ── Frame label editing ── */
+function editFrameLabel(id){
+  const cur=(frm$[id]&&frm$[id].label)||'';
+  const lbl=prompt('Label for frame 0x'+id+':',cur);
+  if(lbl===null) return;
+  const txt=lbl.trim().substring(0,15);
+  if(frm$[id]) frm$[id].label=txt;
+  wsSend({op:'set_label',id:id,label:txt});
+}
+
+/* ── Signal Explorer ── */
+function tsSVG(hist){
+  if(!hist||hist.length<2) return '<svg width="56" height="18"></svg>';
+  const W=56,H=18, mn=Math.min(...hist),mx=Math.max(...hist),rng=Math.max(mx-mn,1);
+  const pts=hist.map((v,i)=>{
+    const x=(i/(hist.length-1))*W, y=H-2-((v-mn)/rng)*(H-4);
+    return x.toFixed(1)+','+y.toFixed(1);
+  }).join(' ');
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><polyline points="${pts}" fill="none" stroke="#58a6ff" stroke-width="1.2"/></svg>`;
+}
+let selSig=null;
+function updSigs(){
+  const keys=Object.keys(sig$);
+  $('sigCnt').textContent=keys.length+' signals';
+  if(!keys.length){$('sigExp').innerHTML='<p style="color:#8b949e;padding:8px">Waiting for PROFILE/SIG data…</p>';return;}
+  const byId={};
+  keys.forEach(k=>{const id=k.split(':')[0];(byId[id]=byId[id]||[]).push(k);});
+  $('sigExp').innerHTML=Object.keys(byId).sort().map(id=>{
+    const lbl=prof$[id]?prof$[id].label:'—';
+    const rows=byId[id].sort((a,b)=>+a.split(':')[1]-+b.split(':')[1]).map(k=>{
+      const s=sig$[k], sel=selSig===k;
+      return `<tr class="sig-row${sel?' sel':''}" onclick="selSig='${k}';updSigs()">
+        <td style="font-family:monospace">${id}</td><td style="color:#79c0ff">${lbl}</td>
+        <td>${s.byte}</td><td>${s.label||'—'}</td>
+        <td style="font-family:monospace">${s.last}</td>
+        <td style="font-family:monospace;color:#6e7681">${s.min}</td>
+        <td style="font-family:monospace;color:#6e7681">${s.max}</td>
+        <td>${s.rate?s.rate.toFixed(1):'—'}</td>
+        <td>${tsSVG(s.hist)}</td></tr>`;
+    }).join('');
+    return `<div class="sig-group"><div class="sig-group-hdr">0x${id} — ${lbl}</div>
+      <table><thead><tr><th>ID</th><th>Frame</th><th>Byte</th><th>Signal</th><th>Last</th><th>Min</th><th>Max</th><th>Rate</th><th>Trend</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+  }).join('');
+}
+
+/* ── mode switch ── */
+let dashboardWriteMode=false;
+function setMode(m){
+  const w=m==='w';
+  dashboardWriteMode=w;
+  document.body.classList.toggle('write-mode',w);
+  $('pnlW').style.display=w?'block':'none';
+  $('pnlR').style.display='block'; /* never stop or hide the live read side */
+  const toggle=$('globalModeToggle');
+  if(toggle) toggle.textContent=w?'EXIT WRITE MODE':'ENTER WRITE MODE';
+}
+/* The board is authoritative: the UI follows STATUS,SYS,WRITE,ON|OFF. */
+function toggleGlobalMode(){ wsSend({op:'write',on:!dashboardWriteMode}); }
+function canCmd(line){ wsSend({op:'can',line:line}); }
+
+/* Live measurements have no reverse encoding. Double-tap opens a local draft
+ * editor only; it never calls wsSend(), the UDS queue, or the CAN TX path. */
+let editingField=null;
+const stagedFieldEdits=[];
+function openFieldEditor(node){
+  if(!dashboardWriteMode || !node || !node.dataset.fieldId) return;
+  const value=node.dataset.value||'';
+  if(!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(value)) return;
+  editingField={id:node.dataset.fieldId,label:node.dataset.fieldLabel||node.dataset.fieldId,observed:value};
+  $('fieldEditorTitle').textContent='Stage '+editingField.label;
+  $('fieldEditorMeta').textContent=editingField.id+' · current observed value: '+value;
+  $('fieldEditInput').value=value;
+  $('fieldEditor').style.display='flex';
+  setTimeout(()=>{$('fieldEditInput').focus();$('fieldEditInput').select();},40);
+}
+function closeFieldEditor(){ $('fieldEditor').style.display='none'; editingField=null; }
+function drawEditDrafts(){
+  $('editDraftRows').innerHTML=stagedFieldEdits.length?stagedFieldEdits.slice().reverse().map(e=>`<tr><td>${esc(e.label)}<br><small>${esc(e.id)}</small></td><td>${esc(e.observed)}</td><td><b>${esc(e.proposed)}</b></td><td style="color:#e3b341">STAGED · NOT SENT</td></tr>`).join(''):'<tr><td colspan="4" style="color:#8b949e">No staged edits.</td></tr>';
+  $('editDraftCount').textContent=stagedFieldEdits.length+' staged';
+}
+function submitFieldEdit(){
+  if(!editingField) return;
+  const raw=$('fieldEditInput').value.trim();
+  if(raw.length>24 || !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(raw) || !Number.isFinite(Number(raw))){
+    $('fieldEditorMeta').textContent='Invalid numeric value. Use digits and an optional decimal point.'; return;
+  }
+  stagedFieldEdits.push({...editingField,proposed:String(Number(raw)),stagedAt:new Date().toISOString()});
+  if(stagedFieldEdits.length>40) stagedFieldEdits.shift();
+  closeFieldEditor(); drawEditDrafts();
+  $('wrOut').textContent='Staged '+editingFieldSafeLabel(stagedFieldEdits[stagedFieldEdits.length-1])+' locally. Not transmitted to vehicle.';
+}
+function editingFieldSafeLabel(e){ return e.label+' ('+e.id+')'; }
+let lastFieldTapAt=0,lastFieldTapId='';
+document.addEventListener('pointerup',ev=>{
+  if(!dashboardWriteMode || ev.pointerType!=='touch') return;
+  const node=ev.target.closest('[data-field-id]'); if(!node) return;
+  const now=Date.now(), id=node.dataset.fieldId||'';
+  if(id && id===lastFieldTapId && now-lastFieldTapAt<420){ lastFieldTapAt=0;lastFieldTapId='';openFieldEditor(node); }
+  else { lastFieldTapAt=now;lastFieldTapId=id; }
+},true);
+document.addEventListener('dblclick',ev=>{
+  if(!dashboardWriteMode || $('fieldEditor').style.display==='flex') return;
+  const node=ev.target.closest('[data-field-id]'); if(node){ev.preventDefault();openFieldEditor(node);}
+},true);
+
+/* ── send frame ── */
+function sendFrame(){
+  if(!sock||sock.readyState!==1){$('txStat').textContent='Not connected.';return;}
+  const fmt=$('txFmt').value, id=$('txId').value.trim().toUpperCase();
+  const bytes=['b0','b1','b2','b3','b4','b5','b6','b7'].map(i=>($( i).value||'00').trim().toUpperCase().padStart(2,'0'));
+  const rtr=$('txRtr').checked?1:0;
+  let dlc=parseInt($('txDlc').value)||0;
+  if(!dlc){dlc=8;for(let i=7;i>=0;i--){if(bytes[i]!=='00'){dlc=i+1;break;}}if(!dlc)dlc=1;}
+  dlc=clamp(dlc,1,8);
+  const maxId=fmt==='S'?0x7FF:0x1FFFFFFF;
+  if(!/^[0-9A-F]{1,8}$/.test(id)||parseInt(id,16)>maxId){$('txStat').textContent='Invalid ID.';return;}
+  const data=bytes.slice(0,dlc).join('');
+  if(!wsSend({op:'tx',format:fmt,id,rtr,dlc,data})) return;
+  $('txStat').textContent='Sent → TX,'+fmt+','+id+','+rtr+','+dlc+','+data;
+}
+function loadDef(){
+  const id=$('txId').value.trim().toUpperCase();
+  if(!id){$('txStat').textContent='Enter a CAN ID first.';return;}
+  for(let i=0;i<8;i++){const k=id+':'+i;if(sig$[k])$('b'+i).value=sig$[k].last||'00';}
+  const p=prof$[id]; if(p&&p.dlc) $('txDlc').value=p.dlc;
+  $('txStat').textContent='Loaded defaults for '+id;
+}
+
+/* ── command channel (no web login: Wi-Fi WPA2 is the gate) ── */
+let authOk=false, armedLeft=0, armedBus='', udsBuf='', curBus='F';
+function setBus(b){ curBus=(b==='B')?'B':'F'; const e=$('busState'); if(e) e.textContent='Active bus: '+(curBus==='F'?'F-CAN (powertrain)':'B-CAN (body)'); }
+function wsSend(o){
+  if(!sock||sock.readyState!==1){ diagLog('Not connected.'); return false; }
+  if(o && o.bus===undefined) o.bus=curBus;   /* default every command to the selected bus */
+  sock.send(JSON.stringify(o)); return true;
+}
+function diagLog(t){
+  const el=$('udsLog'); el.textContent=(new Date().toLocaleTimeString()+'  '+t+'\n'+el.textContent).slice(0,6000);
+}
+function showArm(){
+  $('armState').textContent=armedLeft>0?('ARMED — '+armedLeft+' s left (CAN controller active)'):'Disarmed (silent, receive-only)';
+  $('armState').style.color=armedLeft>0?'#f85149':'#8b949e';
+}
+setInterval(()=>{ if(armedLeft>0){armedLeft--; if(armedLeft===0) armedBus=''; showArm(); syncAutoPids();} },1000);
+function doArm(){
+  const s=parseInt($('armSec').value,10);
+  if(!(s>=1&&s<=600)){ diagLog('Arm window must be 1..600 s.'); return; }
+  if(!confirm('ARM transmit for '+s+' s?\nThe STM32 leaves silent mode: it will ACK frames and can send on the vehicle bus.')) return;
+  wsSend({op:'arm',seconds:s});
+}
+function doDisarm(){ wsSend({op:'disarm'}); }
+const READ_SIDS=['01','02','03','06','07','09','0A','19','22','3E'];
+const SID_NAMES={'04':'OBD-II clear DTCs and stored values','11':'ECU reset','14':'clear diagnostic information (DTCs)',
+  '27':'security access','28':'communication control','2E':'write data by identifier','2F':'input/output control',
+  '31':'routine control','34':'request download','3D':'write memory','85':'control DTC setting','10':'diagnostic session change'};
+function needsConfirm(req){
+  const sid=req.slice(0,2);
+  if(READ_SIDS.includes(sid)) return false;
+  if(sid==='10'){ const sub=parseInt(req.slice(2,4)||'0',16)&0x7F; return !(sub===1||sub===3); }
+  return true;
+}
+function preset(r){ $('udsReq').value=r; }
+function sendUds(){
+  const fmt=$('udsFmt').value, tx=$('udsTx').value.trim().toUpperCase(), rx=$('udsRx').value.trim().toUpperCase();
+  const req=$('udsReq').value.replace(/\s+/g,'').toUpperCase();
+  const max=fmt==='S'?0x7FF:0x1FFFFFFF;
+  if(!/^[0-9A-F]{1,8}$/.test(tx)||parseInt(tx,16)>max||!/^[0-9A-F]{1,8}$/.test(rx)||parseInt(rx,16)>max){ diagLog('Invalid request/response ID.'); return; }
+  if(!/^([0-9A-F]{2}){1,64}$/.test(req)){ diagLog('Request must be 1..64 hex bytes.'); return; }
+  let conf=false;
+  if(needsConfirm(req)){
+    const sid=req.slice(0,2);
+    if(!confirm('This request can change the ECU: '+(SID_NAMES[sid]||('service 0x'+sid))+'.\nSend '+req+' to '+tx+'?')) return;
+    conf=true;
+  }
+  udsBuf='';
+  if(wsSend({op:'uds',format:fmt,tx,rx,req,confirm:conf})) diagLog('→ '+tx+' '+req+(conf?' (confirmed)':''));
+}
+function onDiag(t){
+  const f=t.split(',');
+  if(t.startsWith('ECU,')){ onEcu(t); return; }
+
+  /* STM32 prefixes per-bus diagnostic lines as UDS,F,<event>,... / UDS,B,...
+     (older captures without the bus field are accepted too). */
+  if(f[0]==='UDS'){
+    const tagged=(f[1]==='F'||f[1]==='B');
+    const ei=tagged?2:1, ev=f[ei]||'';
+    if(ev==='DATA'){
+      udsBuf+=(f[ei+3]||'');
+      return;
+    }
+    if(ev==='POS'){
+      if(idCur){ const h=udsBuf; udsBuf=''; idDone(h); }
+      else { diagLog('← '+(f[ei+1]||'ECU')+' positive, '+(f[ei+2]||'0')+' bytes: '+udsBuf); udsBuf=''; }
+      return;
+    }
+    if(ev==='NEG'){
+      const nrc=f[ei+3]||'??';
+      if(idCur) idDone(null,'NRC 0x'+nrc);
+      else diagLog('← '+(f[ei+1]||'ECU')+' negative: service 0x'+(f[ei+2]||'??')+' NRC 0x'+nrc);
+      return;
+    }
+    if(ev==='SENT'){ if(idCur) idDone('00','SENT'); else diagLog(t); return; }
+    if(ev==='ERR'||ev==='TXERR'){
+      const why=f.slice(ei+1).join(',')||ev;
+      if(idCur) idDone(null,why); else diagLog(t);
+      return;
+    }
+    if(ev==='PENDING') return;
+  }
+
+  if(f[0]==='DEVICE'){ deviceLine(f); diagLog(t); return; }
+  if(f[0]==='MAIL'){ const m=$('mailState'); if(m) m.textContent=f.slice(1).join(' '); diagLog(t); return; }
+  if(t.startsWith('STATUS,SYS,WRITE,')){ setMode(f[3]==='ON'?'w':'r'); diagLog(t); return; }
+  if(f[0]==='STATUS' && (f[1]==='F'||f[1]==='B') && f[2]==='WRITE'){ const w=$('writeState'); if(w) w.textContent=f[1]+': '+f.slice(3).join(' '); diagLog(t); return; }
+  if(f[0]==='STATUS' && (f[1]==='F'||f[1]==='B') && (f[2]==='OPTS'||f[2]==='ERRSTATE'||f[2]==='FILTER'||f[2]==='BUSOFF'||f[2]==='SLEEP'||f[2]==='WAKE')){ abilityLine(f); diagLog(t); return; }
+  if(t.startsWith('STATUS,SYS,CAN2SB,')){ const e=$('abCan2sb'); if(e) e.value=f[3]; diagLog(t); return; }
+  /* Per-bus ARM/DISARM acknowledgements are STATUS,F|B,ARMED|DISARMED,... */
+  if(f[0]==='STATUS' && (f[1]==='F'||f[1]==='B')){
+    if(f[2]==='ARMED'){ armedBus=f[1]; armedLeft=f[3]==='WRITE'?600:(parseInt(f[3],10)||0); showArm(); syncAutoPids(); diagLog(t); return; }
+    if(f[2]==='DISARMED'){ if(armedBus===f[1]){armedLeft=0;armedBus='';} showArm(); syncAutoPids(); diagLog(t); return; }
+  }
+  if(t.startsWith('STATUS,ARMED,')){ armedBus='F'; armedLeft=parseInt(f[2],10)||0; showArm(); syncAutoPids(); diagLog(t); return; }
+  if(t.startsWith('STATUS,DISARMED,')){ armedLeft=0; armedBus=''; showArm(); syncAutoPids(); diagLog(t); return; }
+  diagLog(t);
+}
+
+/* ── connected device: detect / select / remember (board stores it) ── */
+let devItems=[], devTarget=null;
+function devCmd(x){ canCmd('DEVICE,'+x); }
+function devList(){ devItems=[]; devCmd('LIST'); }
+function devDetectNew(){ devCmd('DETECT'); }
+function devSelect(pid){ devCmd('SELECT,'+pid); }
+/* Boot view: a saved target boots straight into that device's dashboard;
+   with no saved target the page stays on the detection screen until the
+   user selects the detected device (board is the authority, every boot). */
+/* Signal learning table (board-side grades, journaled; never deleted). */
+let slRows={};
+const SL_COLOR={SEED:'#8b949e',CHECKED:'#58a6ff',VERIFIED:'#3fb950',CONFLICT:'#f85149'};
+function drawSl(){
+  const rows=Object.values(slRows).sort((a,b)=>parseInt(a[0],16)-parseInt(b[0],16));
+  const c={SEED:0,CHECKED:0,VERIFIED:0,CONFLICT:0}; rows.forEach(r=>{ if(c[r[2]]!==undefined) c[r[2]]++; });
+  $('slSum').textContent=c.VERIFIED+' verified · '+c.CHECKED+' checked · '+c.CONFLICT+' conflict · '+c.SEED+' seed';
+  $('slRows').innerHTML=rows.length?rows.map(r=>'<tr><td>'+esc(r[0])+'</td><td>'+esc(r[1])+'</td><td style="font-weight:700;color:'+(SL_COLOR[r[2]]||'#8b949e')+'">'+esc(r[2])+
+    '</td><td>'+(r[3]|0)+'</td><td>'+(r[4]|0)+'</td><td>'+(r[5]|0)+'</td><td>'+(r[3]?(r[6]|0):'–')+'</td></tr>').join(''):'<tr><td colspan="7" style="color:#8b949e">No data yet.</td></tr>';
+}
+function devView(name){
+  document.body.classList.toggle('detecting',!name);
+  $('pageTitle').textContent=name?name+' — Dashboard':'Detecting connected device…';
+  try{ name?localStorage.setItem('devTarget',name):localStorage.removeItem('devTarget'); }catch(e){}
+}
+function devBanner(html){ const b=$('deviceBanner'); b.innerHTML=html; b.style.display=html?'block':'none'; }
+function devAdd(){ const n=($('devNewName').value||'').trim(); if(!n||/[",]/.test(n)){ diagLog('Device name must be non-empty without commas or quotes.'); return; } devCmd('ADD,'+n); }
+function deviceLine(f){
+  const k=f[1];
+  if(k==='TARGET'){ devTarget={pid:f[2],name:f.slice(3).join(',')}; $('devCurrent').textContent='Target: '+devTarget.name; devBanner(''); devView(devTarget.name); }
+  else if(k==='DETECTING'||k==='OBSERVING'){ devTarget=null; $('devCurrent').textContent='Detecting connected network…'; devBanner('Identifying the connected CAN network…'); devView(''); }
+  else if(k==='DETECTED'){ const pid=f[2], name=f.slice(3,-1).join(','), sc=(parseInt(f[f.length-1],10)/10).toFixed(0);
+    devBanner('Detected: <b>'+esc(name)+'</b> ('+sc+'% match) <button class="btn btn-sm" onclick="devSelect('+parseInt(pid,10)+')">Select this device</button>'); }
+  else if(k==='NEW'){ const sug=f.slice(2,-1).join(',');
+    devBanner('New network: <b>'+esc(sug)+'</b> · Name <input id="devNewName" value="'+esc(sug)+'" maxlength="39" style="width:240px"> <button class="btn btn-sm" onclick="devAdd()">Add &amp; select</button>'); }
+  else if(k==='ADDED'){ devSelect(parseInt(f[2],10)); }
+  else if(k==='EXISTS'){ const name=f.slice(3).join(',');
+    if(confirm('Device already added: '+name+'\nDo you want to observe it?')) devSelect(parseInt(f[2],10)); }
+  else if(k==='ITEM'){ devItems.push(f); }
+  else if(k==='LIST'&&f[2]==='END'){
+    $('devRows').innerHTML=devItems.map(x=>'<tr><td>'+esc(x[3])+'</td><td>'+(x[4]==='0'?'—':(x[4]/1000)+'k')+'</td><td>'+(x[5]==='0'?'—':(x[5]/1000)+'k')+'</td><td>'+x[6]+'</td><td>'+x[7]+'</td><td>'+
+      (devTarget&&devTarget.pid===x[2]?'<b>current</b>':'<button class="btn btn-sm" onclick="devSelect('+parseInt(x[2],10)+')">Select</button>')+'</td></tr>').join('');
+  }
+  else if(k==='ERR'){ diagLog('Device: '+f.slice(2).join(',')); }
+}
+
+function mailSave(){ wsSend({op:'mailcfg',to:$('mailTo').value.trim(),from:$('mailFrom').value.trim(),pass:$('mailPass').value}); $('mailPass').value=''; }
+
+/* ── bxCAN abilities panel ── */
+function abBus(){ return $('abBus').value; }
+function abOpt(n,on){ canCmd('OPT,'+abBus()+','+n+','+(on?'on':'off')); }
+function abRefresh(){ canCmd('OPT,'+abBus()); canCmd('ERRSTATE,'+abBus()); canCmd('CAN2SB,?'); }
+function abilityLine(f){
+  if(f[1]!==abBus()) return;
+  if(f[2]==='OPTS'){ f.slice(3).forEach(kv=>{ const [k,v]=kv.split('='); const e=$('ab'+k); if(!e) return; if(e.type==='checkbox') e.checked=v==='1'; else e.value=v; }); }
+  else if(f[2]==='ERRSTATE'){ $('abErr').textContent=f.slice(3).join(' · '); }
+  else if(f[2]==='FILTER'){ $('abFilt').textContent='bank '+f.slice(3).join(' '); }
+  else { $('abErr').textContent=f.slice(2).join(' '); }
+}
+
+/* ── controllers & bus health ── */
+let lastBitrate=0;
+const ecus={};          // rx id → {tx,rx,fmt,reply,info:{}}
+let idq=[], idCur=null, idTimer=null;
+const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let busFps=[0,0], busBps=[0,0], bcPedal=null, veh={state:'OFF'};
+/* Bus health for the selected bus only. Rates/bits are counted on the ESP32
+   from every received frame (not from the profiler), so load is real. */
+function updBus(){
+  const b=curBus==='B'?1:0;
+  $('bhIds').textContent=Object.values(frm$).filter(s=>(s.bus||0)===b).length;
+  $('bhFps').textContent=busFps[b]||0;
+  const br=b===0?lastBitrate:0;
+  $('bhLoad').textContent=br?Math.min(100,100*(busBps[b]||0)/br).toFixed(1)+' %':'—';
+  $('busSum').textContent=Object.keys(ecus).length+' diagnostic controller(s) found';
+}
+setInterval(updBus,1000);
+function drawVeh(){
+  const st=veh.state||'OFF', on=(st==='ON'||st==='RUN');
+  const nm={OFF:'OFF / locked — parked',ACC:'ACC (key I)',ON:'ON (key II)',RUN:'ENGINE RUNNING'}[st]||st;
+  const col={OFF:'#8b949e',ACC:'#e3b341',ON:'#58a6ff',RUN:'#3fb950'}[st]||'#8b949e';
+  const src=veh.src==='OBD'?'OBD':veh.src==='BCAST'?'broadcast 0x17C/0x158 (unverified)':'—';
+  $('vehBar').innerHTML='Key: <b style="color:'+col+'">'+nm+'</b> | RPM <b>'+(on?veh.rpm:'—')+'</b> | Speed <b>'+
+    (on?Number(veh.spd||0).toFixed(1)+' km/h':'—')+'</b> | Pedal (0x17C B0) <b>'+(on&&bcPedal!==null?bcPedal:'—')+
+    '</b> <small style="color:#8b949e">src: '+src+(veh.acc?' · ACC wire high':'')+'</small>';
+  const b=$('startBtn'); if(!b) return;
+  const ok=(st==='ON');
+  b.disabled=!ok; b.style.opacity=ok?'1':'.35'; b.style.cursor=ok?'pointer':'not-allowed';
+  b.title=ok?'':(st==='RUN'?'Engine already running':'Turn the key to position II (ON) first');
+}
+function onStats(t,bus){
+  if((bus||'F')!==curBus) return;   // F and B stats used to overwrite each other
+  const f=t.split(',');   // rx,qdrop,udrop,canerr,lec,tec,rec,state
+  $('bhErr').textContent=(f[3]||'—')+' / '+(f[4]||'—');
+  $('bhDrop').textContent=(f[1]||'—')+' / '+(f[2]||'—');
+  if(f.length>=8){
+    $('bhTecRec').textContent=f[5]+' / '+f[6];
+    $('bhState').textContent=f[7];
+    $('bhState').style.color=f[7]==='ACTIVE'?'#3fb950':(f[7]==='WARNING'?'#e3b341':'#f85149');
+  }
+}
+function scanEcu(kind){
+  const p={obd:['S','7E0','7E7','0100'],uds:['S','7E0','7E7','3E00'],x29:['E','00','FF','3E00']}[kind];
+  if(wsSend({op:'ecuscan',format:p[0],first:p[1],last:p[2],req:p[3],wait:60})) diagLog('ECU scan '+p.join(' '));
+}
+function drawEcus(){
+  const k=Object.keys(ecus);
+  if(!k.length){ $('ecuRows').innerHTML='<tr><td colspan="5" style="color:#8b949e">No controller answered.</td></tr>'; return; }
+  $('ecuRows').innerHTML=k.map(rx=>{ const e=ecus[rx];
+    const info=Object.entries(e.info).map(([n,v])=>esc(n)+': '+esc(v)).join('<br>')||'—';
+    return `<tr><td>${esc(e.tx)}</td><td>${esc(e.rx)}</td><td>${esc(e.reply)}</td><td>${info}</td>`+
+      `<td><button class="btn btn-sm" onclick="identify('${esc(rx)}')">Identify</button> `+
+      `<button class="btn btn-sm" onclick="useEcu('${esc(rx)}')">Use</button></td></tr>`; }).join('');
+}
+function useEcu(rx){ const e=ecus[rx]; if(!e) return; $('udsFmt').value=e.fmt; $('udsTx').value=e.tx; $('udsRx').value=e.rx; }
+/* Identification DIDs (ISO 14229-1 Annex C names, as listed in python-udsoncan DataIdentifier) */
+const ID_DIDS=[['F190','VIN'],['F187','Spare part no.'],['F18C','ECU serial'],['F191','HW no.'],['F195','SW version'],['F18A','Supplier']];
+/* ── generic diagnostic request queue: one request at a time, answer → cb(hex|null, why) ── */
+function diagReq(e,req,cb,confirmed,autoPid){ idq.push({e,req,cb,confirmed:!!confirmed,autoPid:!!autoPid}); idNext(); }
+function idNext(){
+  if(idCur||!idq.length) return;
+  idCur=idq.shift(); udsBuf='';
+  if(!wsSend({op:'uds',format:idCur.e.fmt,tx:idCur.e.tx,rx:idCur.e.rx,req:idCur.req,confirm:idCur.confirmed})){
+    const q=[idCur,...idq]; idq=[]; idCur=null; q.forEach(j=>j.cb(null,'NOT_CONNECTED')); return;
+  }
+  idTimer=setTimeout(()=>idDone(null,'NO_ANSWER'),8000);
+}
+function idDone(hex,why){
+  if(!idCur) return;
+  clearTimeout(idTimer);
+  const j=idCur; idCur=null;
+  try{ j.cb(hex&&hex.length>=2?hex:null, why||''); }catch(err){ diagLog('UI error: '+err); }
+  setTimeout(idNext,j.autoPid?200:20);
+}
+const hexBytes=h=>h.match(/../g).map(x=>parseInt(x,16));
+function identify(rx){
+  const e=ecus[rx]; if(!e) return;
+  const put=(name,skip)=>(hex)=>{ if(!hex) return; const b=hexBytes(hex).slice(skip);
+    const txt=b.filter(c=>c>=0x20&&c<0x7F).map(c=>String.fromCharCode(c)).join('').trim();
+    e.info[name]=(txt.length>=Math.max(1,b.length/2))?txt:b.map(x=>x.toString(16).padStart(2,'0')).join(' ');
+    drawEcus(); };
+  ID_DIDS.forEach(([d,n])=>diagReq(e,'22'+d,put(n,3)));
+  if(e.fmt==='S'){ diagReq(e,'0902',put('VIN (OBD)',3)); diagReq(e,'090A',put('ECU name (OBD)',3)); }
+}
+function identifyAll(){ Object.keys(ecus).forEach(identify); }
+
+/* ── DTCs ── SAE J2012 2-byte code: bits 15-14 system (P/C/B/U), then 4 hex digits */
+function dtcName(b0,b1){ return 'PCBU'[b0>>6]+((b0>>4)&3)+(b0&15).toString(16).toUpperCase()+b1.toString(16).toUpperCase().padStart(2,'0'); }
+/* ISO 14229-1 DTC status bits */
+const DTC_ST=[['testFailed',0],['pending',2],['confirmed',3],['MIL on',7]];
+const dtcRows=[];   // {ecu,code,info,src}
+function drawDtcs(){
+  $('dtcRows').innerHTML=dtcRows.length?dtcRows.map(r=>`<tr><td>${esc(r.ecu)}</td><td><b>${esc(r.code)}</b></td><td>${esc(r.src)}</td><td>${esc(r.info)}</td></tr>`).join('')
+    :'<tr><td colspan="4" style="color:#8b949e">No DTCs reported.</td></tr>';
+  $('dtcSum').textContent=dtcRows.length+' code(s)';
+}
+const eventRows=[];
+function eventSnapshot(e){
+  const rpm=e.rpm>0?e.rpm+' rpm':'RPM —', speed=Number.isFinite(Number(e.speed))?Number(e.speed).toFixed(1)+' km/h':'Speed —';
+  const p=e.pids?(' · '+e.pids):'';
+  const csv=e.snapshotReady?`<a href="/event.csv?id=${Number(e.id)||0}" target="_blank" rel="noopener">Download CSV</a>`:'<span style="color:#e3b341">Capturing / unavailable</span>';
+  return `<details><summary>${esc(rpm+' / '+speed)}</summary><div style="white-space:normal;max-width:360px;overflow-wrap:anywhere;font-size:.65rem;color:#8b949e">State ${esc(e.vehicleState||'?')} · RPM source ${esc(e.rpmSource||'—')} · frames ${esc(e.frames||0)} · F/B FPS ${esc(e.fpsF||0)}/${esc(e.fpsB||0)}${p?'<br>'+esc(p):''}<br>${csv}</div></details>`;
+}
+function drawEvents(){
+  const current=eventRows.filter(e=>!e.seen).sort((a,b)=>a.id-b.id);
+  const history=eventRows.filter(e=>e.seen).sort((a,b)=>b.id-a.id);
+  const row=(e,withAction)=>`<tr><td>${esc(e.timestamp||'—')}</td><td>${esc((e.bus||'F')+' / '+(e.ecu||'—'))}</td><td><b>${esc(e.code||'—')}</b><br><small>${esc(e.status||'')}</small></td><td>${esc(e.source||'—')} ×${esc(e.repeats||1)}</td><td>${eventSnapshot(e)}</td>${withAction?`<td><button class="btn btn-sm" onclick="markEventSeen(${Number(e.id)||0})">Mark seen</button></td>`:''}</tr>`;
+  $('eventCurrent').innerHTML=current.length?current.map(e=>row(e,true)).join(''):'<tr><td colspan="6" style="color:#8b949e">No unacknowledged DTC events.</td></tr>';
+  $('eventHistory').innerHTML=history.length?history.map(e=>row(e,false)).join(''):'<tr><td colspan="5" style="color:#8b949e">No history yet.</td></tr>';
+  $('eventSummary').textContent=current.length+' current · '+history.length+' historical';
+}
+function markEventSeen(id){ if(id>0) wsSend({op:'event_seen',id}); }
+function targets(){ const k=Object.keys(ecus); return k.length?k.map(r=>ecus[r]):[{tx:'7E0',rx:'7E8',fmt:'S',info:{},reply:''}]; }
+function ecuLabel(e){ return e.tx+'→'+e.rx+(e.info['ECU name (OBD)']?' '+e.info['ECU name (OBD)']:''); }
+function readDtcs(){
+  dtcRows.length=0; drawDtcs();
+  targets().forEach(e=>{
+    /* OBD modes 03 stored, 07 pending, 0A permanent: reply 43/47/4A [count] then 2-byte codes */
+    [['03','stored'],['07','pending'],['0A','permanent']].forEach(([m,src])=>diagReq(e,m,(hex)=>{
+      if(!hex) return; const b=hexBytes(hex); let i=1;
+      if((b.length-1)%2===1) i=2;           // CAN replies carry a count byte
+      for(;i+1<b.length;i+=2){ if(b[i]||b[i+1]) dtcRows.push({ecu:ecuLabel(e),code:dtcName(b[i],b[i+1]),src:'OBD '+src,info:''}); }
+      drawDtcs(); }));
+    /* UDS 19 02 FF: 59 02 <availability mask> then 4-byte records DTC(3) + status */
+    diagReq(e,'1902FF',(hex)=>{
+      if(!hex) return; const b=hexBytes(hex);
+      for(let i=3;i+3<b.length;i+=4){
+        const st=b[i+3], flags=DTC_ST.filter(([,bit])=>st&(1<<bit)).map(([n])=>n).join(', ');
+        dtcRows.push({ecu:ecuLabel(e),code:dtcName(b[i],b[i+1])+'-'+b[i+2].toString(16).toUpperCase().padStart(2,'0'),src:'UDS',info:'status 0x'+st.toString(16).padStart(2,'0')+(flags?' ('+flags+')':'')});
+      }
+      drawDtcs(); });
+  });
+}
+function clearDtcs(){
+  if(!confirm('Clear DTCs and freeze-frame data on every controller found?\nThis turns the MIL off until a fault is detected again.')) return;
+  targets().forEach(e=>{
+    diagReq(e,'04',(h,w)=>diagLog(e.tx+' OBD clear: '+(h?'done':w||'refused')),true);
+    diagReq(e,'14FFFFFF',(h,w)=>diagLog(e.tx+' UDS clear: '+(h?'done':w||'refused')),true);
+  });
+}
+function ecuReset(){
+  const e=ecus[$('rstEcu').value]; if(!e){ diagLog('Pick a controller first (run a scan).'); return; }
+  const t=$('rstType').value;
+  if(!confirm('Send ECU reset 11 '+t+' to '+e.tx+'?\nThe controller restarts; do this with the engine off.')) return;
+  diagReq(e,'11'+t,(h,w)=>diagLog(e.tx+' ECU reset: '+(h?'accepted':w||'refused')),true);
+}
+
+/* ── live OBD-II PIDs (SAE J1979 mode 01 formulas) ── */
+const PIDS={0x04:['Engine load','%',b=>b[0]*100/255],0x05:['Coolant temp','°C',b=>b[0]-40],
+ 0x06:['ST fuel trim B1','%',b=>(b[0]-128)*100/128],0x07:['LT fuel trim B1','%',b=>(b[0]-128)*100/128],
+ 0x0A:['Fuel pressure','kPa',b=>3*b[0]],0x0B:['Intake MAP','kPa',b=>b[0]],0x0C:['Engine RPM','rpm',b=>(256*b[0]+b[1])/4],
+ 0x0D:['Vehicle speed','km/h',b=>b[0]],0x0E:['Timing advance','°',b=>b[0]/2-64],0x0F:['Intake air temp','°C',b=>b[0]-40],
+ 0x10:['MAF','g/s',b=>(256*b[0]+b[1])/100],0x11:['Throttle','%',b=>b[0]*100/255],0x1F:['Run time','s',b=>256*b[0]+b[1]],
+ 0x21:['Distance with MIL','km',b=>256*b[0]+b[1]],0x2F:['Fuel level','%',b=>b[0]*100/255],0x31:['Distance since clear','km',b=>256*b[0]+b[1]],
+ 0x33:['Baro pressure','kPa',b=>b[0]],0x42:['Module voltage','V',b=>(256*b[0]+b[1])/1000],0x43:['Absolute load','%',b=>(256*b[0]+b[1])*100/255],
+ 0x44:['Commanded λ','',b=>(256*b[0]+b[1])*2/65536],0x45:['Rel. throttle','%',b=>b[0]*100/255],0x46:['Ambient temp','°C',b=>b[0]-40],
+ 0x49:['Accel pedal D','%',b=>b[0]*100/255],0x4C:['Cmd throttle','%',b=>b[0]*100/255],0x5C:['Oil temp','°C',b=>b[0]-40],
+ 0x5E:['Fuel rate','L/h',b=>(256*b[0]+b[1])/20]};
+let pidList=[], pidOn=false, pidVals={}, engineState='OFF', lastAutoDtcPoll=0;
+/* OBDb Honda Civic signalset records DID 2612 at DA0E→0E for 2012/2013.
+   29-bit normal-fixed addressing: tester F1 → ECU 0E = 18DA0EF1;
+   response ECU 0E → tester F1 = 18DAF10E. Read-only service 22. */
+const HONDA_GEAR_ECU={tx:'18DA0EF1',rx:'18DAF10E',fmt:'E',info:{}};
+let hondaGearOn=false,hondaGearPending=false,hondaGearTimer=null,hondaGearPollMs=250;
+let hondaGear={v2:null,v3:null,updated:0,errors:0};
+function drawHondaGear(){
+  const v2=$('hondaGearV2'),v3=$('hondaGearV3'),age=$('hondaGearAge'),state=$('hondaGearState');
+  if(v2) v2.textContent=hondaGear.v2===null?'—':String(hondaGear.v2);
+  if(v3) v3.textContent=hondaGear.v3===null?'—':String(hondaGear.v3);
+  const fresh=hondaGear.updated && Date.now()-hondaGear.updated<2000;
+  if(age) age.textContent=fresh?(Math.max(0,Date.now()-hondaGear.updated)+' ms'):'stale / none';
+  if(state) state.textContent=(hondaGearOn && fresh)?'LIVE · read-only DID 2612 · 29-bit Honda ECU 0E':(!hondaGearOn && hondaGear.updated)?'POLLING STOPPED · last valid raw values retained':(hondaGear.errors?'No valid reply yet · last status: '+hondaGear.errors:'Waiting for a valid 62 26 12 response.');
+}
+function pollHondaGear(){
+  if(!hondaGearOn || !pidOn) return;
+  if(hondaGearPending){ hondaGearTimer=setTimeout(pollHondaGear,hondaGearPollMs); return; }
+  hondaGearPending=true;
+  diagReq(HONDA_GEAR_ECU,'222612',(hex,why)=>{
+    hondaGearPending=false;
+    if(hex){
+      const b=hexBytes(hex);
+      /* DID data starts after 62 26 12; bit offsets from OBDb are absolute
+         within that data block (byte 44 = variant 2, byte 46 = variant 3). */
+      if(b.length>=50 && b[0]===0x62 && b[1]===0x26 && b[2]===0x12){
+        hondaGear.v2=b[47]; hondaGear.v3=b[49]; hondaGear.updated=Date.now(); hondaGear.errors=0;
+        gearLedFeed();
+      } else hondaGear.errors='malformed 22 2612 response ('+b.length+' bytes)';
+    } else if(why && why!=='NO_ANSWER') hondaGear.errors=why;
+    drawHondaGear();
+    if(hondaGearOn && pidOn){ hondaGearTimer=setTimeout(pollHondaGear,hondaGearPollMs); pollHondaAlt(); }
+  },false,true);
+}
+/* ---- gear -> STM32 LED chase (GEAR,<n>) ------------------------------
+   Debounce: forward only after two consecutive identical raw values from the
+   selected variant, and only when the value changed since the last send. The
+   STM32 side animates only on a real change (GEAR,ACK,<prev>,<new>,UP|DOWN). */
+let gearLed={prev:null,stable:0,sent:null};
+/* ---- labelled state capture (SavvyCAN Discrete-State method) ---- */
+const cap={on:false,label:'',samples:[]};          /* {ts,label,bus,id,dlc,hex} */
+const CAP_MAX=200000;
+function capInfo(){
+  const per={}; for(const x of cap.samples) per[x.label]=(per[x.label]||0)+1;
+  const i=$('capInfo'); if(i) i.textContent=cap.samples.length?Object.entries(per).map(([k,v])=>k+': '+v).join(' · '):'no samples';
+}
+function capToggle(){
+  if(cap.on){ cap.on=false; $('capBtn').textContent='Record'; $('capState').textContent='IDLE'; $('capState').className='live-badge off'; capInfo(); return; }
+  const l=(($('capLabel')||{}).value||'').trim(); if(!l){ alert('Type a state label first'); return; }
+  cap.on=true; cap.label=l; $('capBtn').textContent='Stop'; $('capState').textContent='REC '+l; $('capState').className='live-badge';
+}
+function capFeed(list){
+  if(!cap.on) return; const ts=Date.now();
+  for(const r of list){ if(cap.samples.length>=CAP_MAX){ capToggle(); break; }
+    cap.samples.push({ts,label:cap.label,id:r[0],bus:r[1],dlc:r[2],hex:r[3]||''}); }
+  capInfo();
+}
+function capClear(){ cap.samples.length=0; capInfo(); $('capBody').innerHTML=''; $('capHead').innerHTML=''; }
+/* For every (bus,id,byte,bit): the bit must be constant (>=95 %) inside each
+   label and take different values in at least two labels. */
+function capFind(samples){
+  const labels=[...new Set(samples.map(s=>s.label))];
+  const acc={};                                       /* key -> label -> [ones, n] */
+  for(const s of samples){ const n=Math.min(s.dlc,s.hex.length/2);
+    for(let b=0;b<n;b++){ const v=parseInt(s.hex.substr(b*2,2),16);
+      for(let k=7;k>=0;k--){ const key=s.bus+':'+s.id+':'+b+':'+k; const a=acc[key]||(acc[key]={});
+        const t=a[s.label]||(a[s.label]=[0,0]); t[0]+=(v>>k)&1; t[1]++; } } }
+  const out=[];
+  for(const [key,a] of Object.entries(acc)){
+    if(Object.keys(a).length<labels.length) continue;
+    const vals={}; let stable=true;
+    for(const l of labels){ const [o,n]=a[l]; const f=o/n; if(f>0.05&&f<0.95){stable=false;break;} vals[l]=f>=0.95?1:0; }
+    if(!stable) continue;
+    if(new Set(Object.values(vals)).size<2) continue;
+    const [bus,id,byte,bit]=key.split(':'); out.push({bus:+bus,id,byte:+byte,bit:+bit,vals});
+  }
+  out.sort((x,y)=>x.bus-y.bus||(x.id<y.id?-1:x.id>y.id?1:0)||x.byte-y.byte||y.bit-x.bit);
+  return {labels,bits:out};
+}
+function capAnalyze(){
+  const r=capFind(cap.samples);
+  if(r.labels.length<2){ alert('Record at least two different labels'); return; }
+  const esc=x=>String(x).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  $('capHead').innerHTML='<tr style="text-align:left;color:#8b949e"><th>Bus</th><th>ID</th><th>Byte</th><th>Bit</th>'+r.labels.map(l=>'<th>'+esc(l)+'</th>').join('')+'</tr>';
+  $('capBody').innerHTML=r.bits.length?r.bits.map(b=>'<tr><td>'+(b.bus?'B':'F')+'</td><td>0x'+esc(b.id)+'</td><td>'+b.byte+'</td><td>'+b.bit+'</td>'+r.labels.map(l=>'<td><b>'+b.vals[l]+'</b></td>').join('')+'</tr>').join('')
+    :'<tr><td colspan="9">No bit follows the labels consistently.</td></tr>';
+}
+function capExport(){
+  if(!cap.samples.length){ alert('Nothing recorded'); return; }
+  const rows=['ts_ms,label,bus,id,dlc,data'].concat(cap.samples.map(s=>[s.ts,'"'+s.label.replace(/"/g,'""')+'"',s.bus?'B':'F',s.id,s.dlc,s.hex].join(',')));
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([rows.join('\n')+'\n'],{type:'text/csv'}));
+  a.download='civic_state_capture.csv'; a.click();
+}
+const dec$={};
+let decDrawAt=0;
+function drawDec(){
+  const now=Date.now(); if(now-decDrawAt<250) return; decDrawAt=now;
+  const tb=$('decBody'); if(!tb) return;
+  const f=(($('decFilter')||{}).value||'').toUpperCase();
+  const rows=Object.values(dec$).filter(d=>!f||(d.id+' '+d.msg+' '+d.sig).toUpperCase().includes(f))
+    .sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:(a.sig<b.sig?-1:1));
+  const esc=x=>String(x).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  tb.innerHTML=rows.map(d=>'<tr><td>0x'+esc(d.id)+'</td><td>'+esc(d.msg)+'</td><td>'+esc(d.sig)+'</td><td><b>'+
+    esc(d.t?d.t+' ('+d.v+')':(Math.round(d.v*1000)/1000)+(d.u?' '+d.u:''))+'</b></td><td>'+((now-d.ts)/1000).toFixed(1)+' s</td></tr>').join('');
+  const c=$('decCount'); if(c) c.textContent=rows.length+' signal(s)';
+}
+function gearLedToggle(){
+  const on=$('gearLedOn')&&$('gearLedOn').checked;
+  const src=($('gearLedSrc')&&$('gearLedSrc').value)||'bcast';
+  /* broadcast source: the STM32 follows 0x1A3 TRANS_TARGET_GEAR itself */
+  wsSend({op:'gear_bcast',on:!!(on&&src==='bcast')});
+  if(!on){ wsSend({op:'gear_clear'}); gearLed={prev:null,stable:0,sent:null}; const l=$('gearLedLast'); if(l) l.textContent='off'; }
+}
+function gearLedFeed(){
+  const src=($('gearLedSrc')&&$('gearLedSrc').value)||'bcast';
+  if(src==='bcast') return;              /* STM32 follows the broadcast gear itself */
+  const v=hondaGear[src];
+  if(!Number.isInteger(v) || v<0 || v>15){ gearLed.prev=null; gearLed.stable=0; return; }
+  if(v===gearLed.prev) gearLed.stable++; else { gearLed.prev=v; gearLed.stable=1; }
+  if(gearLed.stable<2 || v===gearLed.sent) return;
+  const on=$('gearLedOn')&&$('gearLedOn').checked;
+  if(!on) return;
+  gearLed.sent=v; wsSend({op:'gear',gear:v});
+  const l=$('gearLedLast'); if(l) l.textContent=String(v)+' ('+src+')';
+}
+/* ---- R18Z1 5AT substitute candidates: ECU 1E, DIDs 2301 / 2322 / 3086 ----
+   Read-only service 22, one DID per 500 ms, round-robin, same key-II + ARM
+   gate as DID 2612 (it is only called from pollHondaGear's callback). */
+const HONDA_ALT_ECU={tx:'18DA1EF1',rx:'18DAF11E',fmt:'E',info:{}};
+const HONDA_ALT_DIDS=['2301','2322','3086'];
+let hondaAlt={i:0,pending:false,last:0,pollMs:500,res:{},updated:0};
+function drawHondaAlt(){
+  for(const d of HONDA_ALT_DIDS){ const el=$('hondaAlt'+d); if(el) el.textContent=hondaAlt.res[d]||'—'; }
+  const st=$('hondaAltState'); if(!st) return;
+  const fresh=hondaAlt.updated && Date.now()-hondaAlt.updated<3000;
+  st.textContent=(hondaGearOn&&fresh)?'LIVE · read-only 22 2301/2322/3086 · 29-bit Honda ECU 1E':(!hondaGearOn&&hondaAlt.updated)?'POLLING STOPPED · last raw values retained':'Waiting for a reply from ECU 1E.';
+}
+function pollHondaAlt(){
+  if(!hondaGearOn || !pidOn || hondaAlt.pending) return;
+  if(Date.now()-hondaAlt.last<hondaAlt.pollMs) return;
+  const did=HONDA_ALT_DIDS[hondaAlt.i]; hondaAlt.i=(hondaAlt.i+1)%HONDA_ALT_DIDS.length;
+  hondaAlt.pending=true; hondaAlt.last=Date.now();
+  diagReq(HONDA_ALT_ECU,'22'+did,(hex,why)=>{
+    hondaAlt.pending=false;
+    if(hex){
+      const b=hexBytes(hex);
+      if(b.length>=3 && b[0]===0x62) hondaAlt.res[did]=b.slice(3).map(x=>x.toString(16).padStart(2,'0')).join(' ')||'(empty)';
+      else hondaAlt.res[did]='NRC '+b.map(x=>x.toString(16).padStart(2,'0')).join(' ');
+      hondaAlt.updated=Date.now();
+    } else if(why && why!=='NO_ANSWER') hondaAlt.res[did]=why;
+    drawHondaAlt();
+  },false,true);
+}
+/*OBDB-BEGIN*/
+/* generated by tools/obdb_to_js.py (2013 model year) from OBDb/Honda-Civic @ 917c21d09f289448516063766eb6ac26d1538b23 signalsets/v3/default.json, CC BY-SA 4.0 - do not edit */
+const OBDB_SRC="OBDb/Honda-Civic @ 917c21d09f289448516063766eb6ac26d1538b23 signalsets/v3/default.json";
+const OBDB=[{"h":"DA0E","r":"0E","did":"2203","f":1,"sigs":[{"id":"CIVIC_TRANS_OIL_P2_PCM","n":"Transmission oil pressure sensor 2","p":"Transmission","b":72,"l":8,"u":"kilopascal"}]},{"h":"DA0E","r":"0E","did":"2240","f":1,"sigs":[{"id":"CIVIC_BAT_DIST","n":"Distance traveled since last charge","p":"Battery","b":80,"l":32,"u":"kilometers"}]},{"h":"DA0E","r":"0E","did":"2300","f":60,"sigs":[]},{"h":"DA0E","r":"0E","did":"2301","f":60,"sigs":[]},{"h":"DA0E","r":"0E","did":"2311","f":60,"sigs":[]},{"h":"DA0E","r":"0E","did":"2320","f":60,"sigs":[]},{"h":"DA0E","r":"0E","did":"2321","f":60,"sigs":[]},{"h":"DA0E","r":"0E","did":"2322","f":60,"sigs":[]},{"h":"DA0E","r":"0E","did":"2323","f":60,"sigs":[]},{"h":"DA0E","r":"0E","did":"2330","f":60,"sigs":[]},{"h":"DA0E","r":"0E","did":"2331","f":60,"sigs":[]},{"h":"DA0E","r":"0E","did":"2332","f":60,"sigs":[]},{"h":"DA0E","r":"0E","did":"2333","f":60,"sigs":[]},{"h":"DA0E","r":"0E","did":"2340","f":60,"sigs":[]},{"h":"DA0E","r":"0E","did":"2610","f":1,"sigs":[{"id":"CIVIC_GENERATOR_PCM","n":"Generator","p":"Engine","b":184,"l":8,"u":"percent","m":100,"d":255},{"id":"CIVIC_AC_CLU_PCM","n":"A/C clutch","p":"Engine","b":262,"l":1,"u":"offon"}]},{"h":"DA0E","r":"0E","did":"2611","f":1,"sigs":[{"id":"CIVIC_AIRGAS_RAT_PCM","n":"Air/gas ratio","p":"Engine","b":64,"l":16,"u":"scalar","m":29.4,"d":65535}]},{"h":"DA0E","r":"0E","did":"2615","f":1,"sigs":[{"id":"CIVIC_ACTIVE_CYL_PCM","n":"Active cylinders","p":"Engine","b":400,"l":8,"u":"scalar"}]},{"h":"DA0E","r":"0E","did":"2660","f":30,"sigs":[{"id":"CIVIC_ODO_PCM","n":"Odometer","p":"Trips","b":344,"l":24,"u":"kilometers"},{"id":"CIVIC_RUNTM_PCM","n":"Time since engine start","p":"Clocks","b":368,"l":16,"u":"seconds"}]},{"h":"DA0E","r":"0E","did":"2661","f":1,"sigs":[{"id":"CIVIC_FUELAIR_CAR_PCM","n":"Fuel/air commanded equivalence ratio","p":"Engine","b":64,"l":16,"u":"scalar","d":2229.08163265}]},{"h":"DA0E","r":"0E","did":"2662","f":1,"sigs":[{"id":"CIVIC_KNOCK_CTRL_PCM","n":"Knock control","p":"ECU","b":80,"l":8,"u":"scalar","m":2,"d":255},{"id":"CIVIC_VTC_DUTY_PCM","n":"Variable valve timing duty","p":"Engine","b":224,"l":8,"u":"percent","m":100,"d":255}]},{"h":"DA0E","r":"0E","did":"2663","f":1,"sigs":[{"id":"CIVIC_MIS_CNT_1_VAR_3_PCM","n":"Misfire count #1, variant 3","p":"Engine","b":160,"l":16,"u":"scalar"},{"id":"CIVIC_MIS_CNT_2_VAR_3_PCM","n":"Misfire count #2, variant 3","p":"Engine","b":176,"l":16,"u":"scalar"},{"id":"CIVIC_MIS_CNT_3_VAR_3_PCM","n":"Misfire count #3, variant 3","p":"Engine","b":192,"l":16,"u":"scalar"},{"id":"CIVIC_MIS_CNT_4_VAR_3_PCM","n":"Misfire count #4, variant 3","p":"Engine","b":208,"l":16,"u":"scalar"},{"id":"CIVIC_MIS_1_PCM","n":"Misfire count, cylinder 1","p":"ECU","b":272,"l":16,"u":"scalar"},{"id":"CIVIC_MIS_2_PCM","n":"Misfire count, cylinder 2","p":"ECU","b":288,"l":16,"u":"scalar"},{"id":"CIVIC_MIS_3_PCM","n":"Misfire count, cylinder 3","p":"ECU","b":304,"l":16,"u":"scalar"},{"id":"CIVIC_MIS_4_PCM","n":"Misfire count, cylinder 4","p":"ECU","b":320,"l":16,"u":"scalar"}]},{"h":"DA0E","r":"0E","did":"2666","f":5,"sigs":[{"id":"CIVIC_EOT_VAR_3_PCM","n":"Engine oil temperature, variant 3","p":"Engine","b":88,"l":8,"u":"celsius","a":-40},{"id":"CIVIC_EOT_VAR_4_PCM","n":"Engine oil temperature, variant 4","p":"Engine","b":112,"l":8,"u":"celsius","a":-40}]},{"h":"DA0E","r":"0E","did":"266C","f":1,"sigs":[{"id":"CIVIC_MIS_CNT_1_VAR_1_PCM","n":"Misfire count #1, variant 1","p":"Engine","b":48,"l":8,"u":"scalar"},{"id":"CIVIC_MIS_CNT_2_VAR_1_PCM","n":"Misfire count #2, variant 1","p":"Engine","b":56,"l":8,"u":"scalar"},{"id":"CIVIC_MIS_CNT_3_VAR_1_PCM","n":"Misfire count #3, variant 1","p":"Engine","b":64,"l":8,"u":"scalar"},{"id":"CIVIC_MIS_CNT_4_VAR_1_PCM","n":"Misfire count #4, variant 1","p":"Engine","b":72,"l":8,"u":"scalar"}]},{"h":"DA0E","r":"0E","did":"266D","f":1,"sigs":[{"id":"CIVIC_AIR_FUEL_MIXTURE","n":"Air-fuel mixture heater","p":"Fuel","b":72,"l":8,"u":"percent","d":2}]},{"h":"DA0E","r":"0E","did":"E82A","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2200","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2341","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2342","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"23E0","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"23E1","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"23E2","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"23E3","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"23E4","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2511","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2512","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2514","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2516","f":1,"sigs":[{"id":"CIVIC_FLI_INPUT","n":"Fuel level input","p":"Fuel","b":232,"l":8,"u":"percent"}]},{"h":"DA10","r":"10","did":"2580","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2600","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2601","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"260F","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2610","f":1,"sigs":[{"id":"CIVIC_GENERATOR","n":"Generator","p":"Engine","b":184,"l":8,"u":"percent","m":100,"d":255},{"id":"CIVIC_AC_CLUTCH","n":"A/C clutch","p":"Engine","b":262,"l":1,"u":"offon"}]},{"h":"DA10","r":"10","did":"2612","f":0.25,"sigs":[{"id":"CIVIC_VTEC_PSW","n":"VTEC pressure switch","p":"Engine","b":174,"l":1,"u":"offon"},{"id":"CIVIC_VTEC_SOL","n":"VTEC solenoid valve","p":"Engine","b":175,"l":1,"u":"offon"}]},{"h":"DA10","r":"10","did":"2614","f":5,"sigs":[{"id":"CIVIC_ST_CHG_RAW_CNT_DA10","n":"State of charge, raw count","p":"Battery","b":144,"l":16,"u":"scalar"},{"id":"CIVIC_IMA_BAT_T_DA10","n":"Motor assist battery temperature","p":"Battery","b":176,"l":8,"u":"celsius","m":9,"d":5,"a":-40}]},{"h":"DA10","r":"10","did":"2616","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2617","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"261A","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2620","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2621","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2622","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2623","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2624","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2625","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2627","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"262A","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2630","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2661","f":0.25,"sigs":[{"id":"CIVIC_FUELAIR_CAR","n":"Fuel/air commanded equivalence ratio","p":"Engine","b":64,"l":16,"u":"scalar","d":2229.08163265}]},{"h":"DA10","r":"10","did":"2662","f":0.25,"sigs":[{"id":"CIVIC_KNOCK_CONTROL","n":"Knock control","p":"Engine","b":80,"l":8,"u":"unknown","m":2,"d":255},{"id":"CIVIC_VTC_DUTY","n":"Variable timing control duty","p":"Engine","b":224,"l":8,"u":"percent","m":100,"d":255}]},{"h":"DA10","r":"10","did":"2663","f":1,"sigs":[{"id":"CIVIC_MIS_1","n":"Misfire count #1","p":"Engine","b":272,"l":16,"u":"scalar"},{"id":"CIVIC_MIS_2","n":"Misfire count #2","p":"Engine","b":288,"l":16,"u":"scalar"},{"id":"CIVIC_MIS_3","n":"Misfire count #3","p":"Engine","b":304,"l":16,"u":"scalar"},{"id":"CIVIC_MIS_4","n":"Misfire count #4","p":"Engine","b":320,"l":16,"u":"scalar"}]},{"h":"DA10","r":"10","did":"2664","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"2665","f":30,"sigs":[{"id":"CIVIC_DRIVE_TM","n":"Drive time since engine start","p":"Engine","b":64,"l":16,"u":"seconds"}]},{"h":"DA10","r":"10","did":"2666","f":5,"sigs":[{"id":"CIVIC_EOT_VAR_3","n":"Engine oil temperature, variant 3","p":"Engine","b":88,"l":8,"u":"celsius","a":-40},{"id":"CIVIC_EOT_VAR_4","n":"Engine oil temperature, variant 4","p":"Engine","b":112,"l":8,"u":"celsius","a":-40}]},{"h":"DA10","r":"10","did":"2667","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2668","f":1,"sigs":[{"id":"CIVIC_ELEC_MOTOR_LOAD_DA10","n":"Electric motor load","p":"Engine","b":216,"l":8,"u":"percent","m":40,"d":51,"a":-100}]},{"h":"DA10","r":"10","did":"2669","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"266A","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"266B","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"266E","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"266F","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"2670","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2671","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2672","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2673","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"2674","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2676","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2677","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2678","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"2679","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"267A","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"267B","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"267C","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"267D","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"267E","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"267F","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2680","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"2681","f":30,"sigs":[{"id":"CIVIC_BAT_SNS_V","n":"Battery voltage at the battery sensor","p":"Electrical","b":48,"l":16,"u":"volts","d":1000}]},{"h":"DA10","r":"10","did":"2682","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"2683","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"2684","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"2685","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"2686","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"2688","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"2689","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"268A","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"268B","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"268C","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"268D","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"268E","f":30,"sigs":[{"id":"CIVIC_FUEL_P","n":"Fuel pressure from the fuel pressure sensor","p":"Fuel","b":48,"l":16,"u":"kilopascal","m":10},{"id":"CIVIC_DI_FUEL_P","n":"Direct injection fuel pressure","p":"Fuel","b":64,"l":16,"u":"kilopascal","m":10}]},{"h":"DA10","r":"10","did":"268F","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"2690","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"2691","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"2692","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"2693","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"2694","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2695","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2697","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2698","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"2699","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"269A","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"269B","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"269C","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"269D","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"26F0","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"26F1","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"26F2","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"26F3","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"26F4","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"3000","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"3001","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"300C","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"3014","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"C180","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"C181","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E401","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E402","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"E40E","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E40F","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E411","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"E412","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"E413","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"E414","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"E415","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"E416","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"E41F","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"E500","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E501","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E50C","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E50E","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E50F","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E5FF","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E600","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"E601","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E602","f":30,"sigs":[]},{"h":"DA10","r":"10","did":"E800","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E801","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E802","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E806","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E807","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E808","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E809","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E80E","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E813","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E814","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E816","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E81E","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E81F","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E820","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E821","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E823","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"E82C","f":60,"sigs":[]},{"h":"DA10","r":"10","did":"F40D","f":1,"sigs":[{"id":"CIVIC_VSS_F4","n":"Vehicle speed, mirrored read","p":"Engine","b":0,"l":8,"u":"kilometersPerHour"}]},{"h":"DA10","r":"10","did":"F42F","f":1,"sigs":[{"id":"CIVIC_FLI_F4","n":"Fuel level, mirrored read","p":"Fuel","b":0,"l":8,"u":"percent","m":100,"d":255}]},{"h":"DA10","r":"10","did":"FD00","f":60,"sigs":[]},{"h":"DA11","r":"11","did":"2611","f":5,"sigs":[{"id":"CIVIC_AIRGAS_RATIO_V2","n":"Air/gas ratio","p":"Engine","b":64,"l":16,"u":"scalar","m":29.4,"d":65535}]},{"h":"DA11","r":"11","did":"2613","f":1,"sigs":[{"id":"CIVIC_EVAP_PC_LOAD","n":"Evaporative purge control load","p":"Engine","b":48,"l":8,"u":"percent","m":100,"d":255},{"id":"CIVIC_AC_P_RAW_CNT","n":"Air conditioning pressure, raw count","p":"Engine","b":120,"l":16,"u":"scalar"}]},{"h":"DA11","r":"11","did":"2614","f":5,"sigs":[{"id":"CIVIC_ST_CHG_RAW_CNT","n":"State of charge, raw count","p":"Battery","b":144,"l":16,"u":"scalar"},{"id":"CIVIC_IMA_BAT_T","n":"Motor assist battery temperature","p":"Battery","b":176,"l":8,"u":"celsius","m":9,"d":5,"a":-40}]},{"h":"DA11","r":"11","did":"2615","f":1,"sigs":[{"id":"CIVIC_SENS_FUEL_P_RAW_CNT","n":"Fuel pressure sensor a, raw count","p":"Fuel","b":248,"l":16,"u":"scalar"}]},{"h":"DA11","r":"11","did":"2660","f":5,"sigs":[{"id":"CIVIC_RUNTM_V2","n":"Time since engine start","p":"Clocks","b":368,"l":16,"u":"seconds"}]},{"h":"DA11","r":"11","did":"2661","f":1,"sigs":[{"id":"CIVIC_ELD_ELEC_LOAD_DUTY","n":"Electric load detector current","p":"Engine","b":136,"l":8,"u":"amps","d":2}]},{"h":"DA11","r":"11","did":"2662","f":5,"sigs":[{"id":"CIVIC_KNOCK_CONTROL_V2","n":"Knock control","p":"Engine","b":80,"l":8,"u":"scalar","m":1.99,"d":255},{"id":"CIVIC_CAT_T","n":"Catalyst temperature","p":"Engine","b":96,"l":16,"u":"celsius","d":10,"a":-40},{"id":"CIVIC_VARIABLE_TIM_CTRL","n":"Variable timing control duty","p":"Engine","b":224,"l":8,"u":"percent","m":20,"d":51}]},{"h":"DA11","r":"11","did":"2668","f":1,"sigs":[{"id":"CIVIC_ELEC_MOTOR_LOAD","n":"Electric motor load","p":"Engine","b":216,"l":8,"u":"percent","m":40,"d":51,"a":-100}]},{"h":"DA1D","r":"1D","did":"2201","f":1,"sigs":[{"id":"CIVIC_ATF_T","n":"Automatic transmission fluid temperature","p":"Transmission","b":208,"l":8,"u":"celsius","a":-40}]},{"h":"DA1D","r":"1D","did":"2221","f":1,"sigs":[{"id":"CIVIC_GEAR_1D","n":"Current gear","p":"Transmission","b":184,"l":8,"u":"scalar"}]},{"h":"DA1D","r":"1D","did":"2660","f":5,"sigs":[{"id":"CIVIC_ODO_V2","n":"Odometer","p":"Trips","b":344,"l":24,"u":"kilometers"}]},{"h":"DA1E","r":"1E","did":"2201","f":5,"sigs":[{"id":"CIVIC_ATF_T_VAR_4","n":"Transmission fluid temperature, variant 4","p":"Engine","b":208,"l":8,"u":"celsius","a":-40}]},{"h":"DA1E","r":"1E","did":"2300","f":60,"sigs":[]},{"h":"DA1E","r":"1E","did":"2301","f":30,"sigs":[{"id":"CIVIC_TCM_VSS","n":"Vehicle speed","p":"Transmission","b":32,"l":8,"u":"kilometersPerHour"},{"id":"CIVIC_TCM_RPM","n":"Engine speed","p":"Transmission","b":56,"l":16,"u":"rpm"},{"id":"CIVIC_INPUT_SHAFT_RPM","n":"Input shaft speed","p":"Transmission","b":72,"l":16,"u":"rpm"},{"id":"CIVIC_TCM_MAP","n":"Manifold absolute pressure","p":"Transmission","b":176,"l":8,"u":"kilopascal"},{"id":"CIVIC_TCM_BARO","n":"Atmospheric pressure","p":"Transmission","b":192,"l":8,"u":"kilopascal"},{"id":"CIVIC_CVTF_T","n":"Transmission fluid temperature","p":"Transmission","b":208,"l":8,"u":"celsius","a":-40}]},{"h":"DA1E","r":"1E","did":"2311","f":60,"sigs":[]},{"h":"DA1E","r":"1E","did":"2320","f":30,"sigs":[]},{"h":"DA1E","r":"1E","did":"2321","f":30,"sigs":[]},{"h":"DA1E","r":"1E","did":"2322","f":30,"sigs":[{"id":"CIVIC_TCM_VSS_2","n":"Vehicle speed","p":"Transmission","b":32,"l":8,"u":"kilometersPerHour"},{"id":"CIVIC_SEC_SHAFT_1_RPM","n":"Secondary shaft speed 1","p":"Transmission","b":72,"l":16,"u":"rpm"},{"id":"CIVIC_TURBINE_RPM","n":"Torque converter turbine speed","p":"Transmission","b":104,"l":16,"u":"rpm"},{"id":"CIVIC_SEC_SHAFT_2_RPM","n":"Secondary shaft speed 2","p":"Transmission","b":120,"l":16,"u":"rpm"}]},{"h":"DA1E","r":"1E","did":"2323","f":30,"sigs":[]},{"h":"DA1E","r":"1E","did":"2330","f":60,"sigs":[]},{"h":"DA1E","r":"1E","did":"2331","f":60,"sigs":[]},{"h":"DA1E","r":"1E","did":"2332","f":60,"sigs":[]},{"h":"DA1E","r":"1E","did":"2333","f":60,"sigs":[]},{"h":"DA1E","r":"1E","did":"2340","f":30,"sigs":[]},{"h":"DA1E","r":"1E","did":"3083","f":5,"sigs":[{"id":"CIVIC_ATF_T_DA1E","n":"Transmission fluid temperature","p":"Transmission","b":112,"l":8,"u":"celsius","a":-40}]},{"h":"DA1E","r":"1E","did":"3086","f":0.25,"sigs":[{"id":"CIVIC_GEAR","n":"Transmission gear","p":"Transmission","b":160,"l":8,"u":"","map":{"0":"Park","1":"Drive, first gear","2":"Drive, second gear","3":"Drive, third gear","4":"Drive, fourth gear","5":"Drive, fifth gear","6":"Drive, sixth gear","7":"Drive, seventh gear","8":"Drive, eighth gear","9":"Drive, ninth gear","14":"Neutral","15":"Reverse"}}]},{"h":"DA1E","r":"1E","did":"E50A","f":30,"sigs":[]},{"h":"DA1E","r":"1E","did":"E50B","f":30,"sigs":[]},{"h":"DA1E","r":"1E","did":"E50D","f":30,"sigs":[]},{"h":"DA1E","r":"1E","did":"E82A","f":60,"sigs":[]},{"h":"DA26","r":"26","did":"6010","f":60,"sigs":[]},{"h":"DA28","r":"28","did":"4000","f":60,"sigs":[]},{"h":"DA28","r":"28","did":"4001","f":30,"sigs":[]},{"h":"DA28","r":"28","did":"4002","f":60,"sigs":[]},{"h":"DA28","r":"28","did":"4003","f":60,"sigs":[]},{"h":"DA28","r":"28","did":"4006","f":60,"sigs":[]},{"h":"DA28","r":"28","did":"4007","f":30,"sigs":[]},{"h":"DA28","r":"28","did":"4008","f":30,"sigs":[]},{"h":"DA28","r":"28","did":"4030","f":60,"sigs":[]},{"h":"DA28","r":"28","did":"4031","f":60,"sigs":[]},{"h":"DA28","r":"28","did":"4032","f":60,"sigs":[]},{"h":"DA28","r":"28","did":"4033","f":60,"sigs":[]},{"h":"DA28","r":"28","did":"4034","f":60,"sigs":[]},{"h":"DA28","r":"28","did":"4035","f":60,"sigs":[]},{"h":"DA28","r":"28","did":"4036","f":60,"sigs":[]},{"h":"DA28","r":"28","did":"4037","f":60,"sigs":[]},{"h":"DA28","r":"28","did":"4038","f":60,"sigs":[]},{"h":"DA28","r":"28","did":"4039","f":60,"sigs":[]},{"h":"DA28","r":"28","did":"4070","f":30,"sigs":[]},{"h":"DA28","r":"28","did":"4071","f":30,"sigs":[]},{"h":"DA28","r":"28","did":"4072","f":30,"sigs":[]},{"h":"DA28","r":"28","did":"4073","f":30,"sigs":[]},{"h":"DA28","r":"28","did":"E600","f":30,"sigs":[]},{"h":"DA28","r":"28","did":"E602","f":60,"sigs":[]},{"h":"DA30","r":"30","did":"3004","f":60,"sigs":[]},{"h":"DA30","r":"30","did":"3008","f":60,"sigs":[]},{"h":"DA53","r":"53","did":"0006","f":60,"sigs":[]},{"h":"DA53","r":"53","did":"8005","f":30,"sigs":[]},{"h":"DA60","r":"60","did":"7010","f":60,"sigs":[]},{"h":"DA60","r":"60","did":"7012","f":60,"sigs":[]},{"h":"DA60","r":"60","did":"7020","f":30,"sigs":[]},{"h":"DA60","r":"60","did":"7021","f":30,"sigs":[]},{"h":"DA60","r":"60","did":"702A","f":30,"sigs":[]},{"h":"DA60","r":"60","did":"702B","f":30,"sigs":[]},{"h":"DA60","r":"60","did":"7061","f":60,"sigs":[]},{"h":"DA60","r":"60","did":"7068","f":30,"sigs":[]},{"h":"DA60","r":"60","did":"7090","f":60,"sigs":[]},{"h":"DA60","r":"60","did":"70A0","f":60,"sigs":[]},{"h":"DA60","r":"60","did":"70A1","f":60,"sigs":[]},{"h":"DA60","r":"60","did":"70A4","f":60,"sigs":[]},{"h":"DA60","r":"60","did":"70A8","f":60,"sigs":[]},{"h":"DA60","r":"60","did":"70A9","f":60,"sigs":[]},{"h":"DA60","r":"60","did":"70C0","f":60,"sigs":[]},{"h":"DA60","r":"60","did":"70C1","f":60,"sigs":[]},{"h":"DA60","r":"60","did":"70C2","f":30,"sigs":[]},{"h":"DA60","r":"60","did":"70C3","f":60,"sigs":[]}];
+/*OBDB-END*/
+/* ---- Honda diagnostic DIDs (OBDb layouts): read-only service 22 poller ---- */
+const obdbState={timer:null,pending:false,slot:0,ri:0,res:{},raw:{},unsup:{},noEcu:{},last:{}};
+const OBDB_ENGINE_HDR=['DA0E','DA10','DA11'], OBDB_TRANS_HDR=['DA1D','DA1E'];
+function obdbBits(b,bix,len){ let v=0; for(let i=0;i<len;i++){ const p=bix+i, B=3+(p>>3); if(B>=b.length) return null; v=v*2+((b[B]>>(7-(p&7)))&1); } return v; }
+function obdbVal(s,b){
+  let r=obdbBits(b,s.b,s.l); if(r===null) return null;
+  if(s.s && r>=Math.pow(2,s.l-1)) r-=Math.pow(2,s.l);
+  const v=r*(s.m===undefined?1:s.m)/(s.d===undefined?1:s.d)+(s.a===undefined?0:s.a);
+  const t=s.map&&s.map[String(r)]!==undefined?String(s.map[String(r)]):(s.u==='offon'?(r?'ON':'OFF'):'');
+  return {v,t};
+}
+function obdbEcu(c){ return {tx:'18'+c.h+'F1',rx:'18DAF1'+c.r,fmt:'E',info:{}}; }
+function obdbPick(){
+  const now=Date.now();
+  const ok=c=>!((obdbState.unsup[c.h+c.did]&&now-obdbState.unsup[c.h+c.did]<60000)||(obdbState.noEcu[c.h]&&now-obdbState.noEcu[c.h]<60000));
+  const named=OBDB.filter(c=>c.sigs.length), raw=OBDB.filter(c=>!c.sigs.length);
+  if(raw.length && (++obdbState.slot)%5===0){
+    for(let k=0;k<raw.length;k++){ const c=raw[(obdbState.ri++)%raw.length]; if(ok(c)) return c; }
+  }
+  let best=null,due=Infinity;
+  for(const c of named){ if(!ok(c)) continue; const d=(obdbState.last[c.h+c.did]||0)+Math.max(250,c.f*1000); if(d<due){ due=d; best=c; } }
+  return best;
+}
+function obdbTick(){
+  obdbState.timer=null;
+  if(!hondaGearOn||!pidOn||!($('obdbOn')||{checked:true}).checked) return;
+  if(obdbState.pending){ obdbState.timer=setTimeout(obdbTick,100); return; }
+  const c=obdbPick();
+  if(!c){ obdbState.timer=setTimeout(obdbTick,500); return; }
+  const k=c.h+c.did; obdbState.pending=true; obdbState.last[k]=Date.now();
+  diagReq(obdbEcu(c),'22'+c.did,(hex,why)=>{
+    obdbState.pending=false; const now=Date.now();
+    if(hex){
+      const b=hexBytes(hex);
+      if(b[0]===0x62 && b.length>=3){
+        obdbState.raw[k]={h:c.h,did:c.did,hex:b.slice(3).map(x=>x.toString(16).padStart(2,'0')).join(' ')||'(empty)',ts:now};
+        for(const s of c.sigs){ const r=obdbVal(s,b); if(r) obdbState.res[s.id]={v:r.v,t:r.t,n:s.n,p:s.p,u:s.u,h:c.h,did:c.did,ts:now}; }
+        delete obdbState.unsup[k]; delete obdbState.noEcu[c.h];
+      } else if(b[0]===0x7F){
+        obdbState.raw[k]={h:c.h,did:c.did,hex:'NRC '+hex,ts:now};
+        if(b.length>=3 && [0x11,0x12,0x31].includes(b[2])) obdbState.unsup[k]=now;
+      }
+    } else if(why==='NO_ANSWER'){ obdbState.noEcu[c.h]=now; obdbState.raw[k]={h:c.h,did:c.did,hex:'no answer (unit skipped 60 s)',ts:now}; }
+  },false,true);
+  obdbState.timer=setTimeout(obdbTick,120);
+}
+let sysDrawAt=0;
+const ENGINE_MSGS=['POWERTRAIN_DATA','ENGINE_DATA','GAS_PEDAL','GAS_PEDAL_2'], TRANS_MSGS=['GEARBOX_AUTO','GEARBOX_CVT'];
+function drawSystems(){
+  const now=Date.now(); if(now-sysDrawAt<400) return; sysDrawAt=now;
+  const esc=x=>String(x).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const fmtv=(v,u,t)=>t?(t+' ('+v+')'):((Math.round(v*100)/100)+(u&&u!=='scalar'?' '+u:''));
+  const eng=[],tr=[],oth=[];
+  for(const [no,lv] of Object.entries(pidVals||{})) eng.push([lv[0],lv[1],'OBD-II 01 '+Number(no).toString(16).toUpperCase().padStart(2,'0'),null]);
+  for(const d of Object.values(dec$)){ const row=[d.sig+' ('+d.msg+')',fmtv(d.v,d.u,d.t),'F-CAN 0x'+d.id,d.ts];
+    (ENGINE_MSGS.includes(d.msg)?eng:TRANS_MSGS.includes(d.msg)?tr:oth).push(row); }
+  for(const r of Object.values(obdbState.res)){ const row=[r.n,fmtv(r.v,r.u,r.t),'ECU '+r.h.slice(2)+' DID '+r.did,r.ts];
+    ((r.p==='Engine'||OBDB_ENGINE_HDR.includes(r.h))?eng:(r.p==='Transmission'||OBDB_TRANS_HDR.includes(r.h))?tr:oth).push(row); }
+  const put=(id,rows)=>{ const el=$(id); if(!el) return;
+    rows.sort((a,b)=>a[0]<b[0]?-1:1);
+    el.innerHTML=rows.length?rows.map(r=>'<tr><td>'+esc(r[0])+'</td><td><b>'+esc(r[1])+'</b></td><td style="color:#8b949e">'+esc(r[2])+(r[3]?' &middot; '+((now-r[3])/1000).toFixed(1)+' s':'')+'</td></tr>').join('')
+      :'<tr><td style="color:#8b949e">no values yet</td></tr>'; };
+  put('sysEngine',eng); put('sysTrans',tr); put('sysOther',oth);
+  const rawRows=Object.entries(obdbState.raw).filter(([k])=>{ const c=OBDB.find(x=>x.h+x.did===k); return !c||!c.sigs.length; });
+  const rb=$('sysRaw'); if(rb) rb.innerHTML=rawRows.map(([k,r])=>'<tr><td>ECU '+esc(r.h.slice(2))+' DID '+esc(r.did)+'</td><td>'+esc(r.hex)+'</td></tr>').join('');
+  const cnt=$('sysCounts'); if(cnt) cnt.textContent='Engine '+eng.length+' · Transmission '+tr.length+' · Other '+oth.length+' values · Honda DIDs known for this car: '+OBDB.length+' ('+OBDB.filter(c=>c.sigs.length).length+' with published layout)';
+  const st=$('sysState'); if(st){ const live=eng.length+tr.length+oth.length>0; st.textContent=live?'LIVE':'WAITING'; st.className='live-badge'+(live?'':' off'); }
+  const src=$('obdbSrc'); if(src) src.textContent=OBDB_SRC||'not embedded';
+}
+setInterval(drawSystems,1000);
+function startHondaGearPoll(){
+  if(hondaGearOn) return;
+  hondaGearOn=true; hondaGearPending=false; hondaGear.errors=0;
+  if(hondaGearTimer) clearTimeout(hondaGearTimer);
+  drawHondaGear(); pollHondaGear();
+  if(!obdbState.timer) obdbState.timer=setTimeout(obdbTick,300);
+}
+function stopHondaGearPoll(){
+  hondaGearOn=false; hondaGearPending=false;
+  if(hondaGearTimer) clearTimeout(hondaGearTimer);
+  hondaGearTimer=null; drawHondaGear(); hondaAlt.pending=false; drawHondaAlt();
+  if(obdbState.timer) clearTimeout(obdbState.timer); obdbState.timer=null; obdbState.pending=false;
+}
+function pidEcu(){ const k=Object.keys(ecus).filter(r=>ecus[r].fmt==='S'); return k.length?ecus[k[0]]:{tx:'7E0',rx:'7E8',fmt:'S',info:{}}; }
+function discoverPids(cb){
+  pidList=[]; const e=pidEcu();
+  const step=(base)=>diagReq(e,'01'+base.toString(16).padStart(2,'0').toUpperCase(),(hex)=>{
+    if(!hex){ cb(); return; } const b=hexBytes(hex).slice(2);
+    for(let i=0;i<32;i++) if(b[i>>3]&(0x80>>(i&7))){ const p=base+i+1; if((p&0x1F)!==0) pidList.push(p); }
+    if((b[3]&1)&&base<0xC0) step(base+0x20); else cb(); },false,true);
+  step(0);
+}
+function stopAutoPids(reason){
+  if(!pidOn) return;
+  pidOn=false; pidList=[]; stopHondaGearPoll();
+  idq=idq.filter(q=>!q.autoPid);
+  if(idCur && idCur.autoPid){
+    clearTimeout(idTimer); idCur=null; udsBuf='';
+    wsSend({op:'uds_abort',bus:'F'});
+    setTimeout(idNext,30);
+  }
+  const state=$('autoPidState'); if(state) state.textContent='Automatic PID monitor paused: '+reason;
+}
+function syncAutoPids(){
+  const shouldRun=(armedBus==='F' && armedLeft>0 && (engineState==='ON'||engineState==='RUN'));
+  if(shouldRun && !pidOn){
+    pidOn=true; pidVals={}; lastAutoDtcPoll=0; drawPids();
+    const state=$('autoPidState'); if(state) state.textContent='Automatic monitor active · standard Mode 01 + Honda read-only DID 2612 · F-CAN ARM gate';
+    startHondaGearPoll();
+    discoverPids(()=>{ if(!pidOn) return; diagLog(pidList.length+' supported Mode 01 PIDs discovered'); pollPids(); });
+  } else if(!shouldRun && pidOn){
+    stopAutoPids(armedBus==='F' && armedLeft===0?'F-CAN ARM window expired':'key left position II or F-CAN disarmed');
+  } else if(!shouldRun){
+    const state=$('autoPidState');
+    if(state) state.textContent=(armedBus==='F'&&armedLeft>0)?'Automatic PID monitor: waiting for key position II.':'Automatic PID monitor: waiting for key II and F-CAN ARM.';
+  }
+}
+function pollDtcStatus(done){
+  const e=pidEcu(), requests=['03','07','0A','1902FF']; let left=requests.length;
+  requests.forEach(req=>diagReq(e,req,(hex)=>{
+    if(hex) diagLog('Automatic DTC status received from '+e.rx+' ('+req+')');
+    if(--left===0 && pidOn) done();
+  },false,true));
+}
+function pollPids(){
+  if(!pidOn || armedBus!=='F' || armedLeft<=0 || (engineState!=='ON'&&engineState!=='RUN')) return;
+  if(!pidList.length){
+    /* Keep the read-only DTC monitor alive even if this ECU exposes no Mode 01 sensor PIDs. */
+    const now=Date.now();
+    if(!lastAutoDtcPoll || now-lastAutoDtcPoll>=30000){
+      lastAutoDtcPoll=now; pollDtcStatus(()=>setTimeout(pollPids,30000));
+    } else setTimeout(pollPids,1000);
+    return;
+  }
+  const e=pidEcu(); let left=pidList.length;
+  pidList.forEach(p=>diagReq(e,'01'+p.toString(16).padStart(2,'0').toUpperCase(),(hex)=>{
+    if(hex){ const b=hexBytes(hex); if(b[1]===p){ const d=b.slice(2), f=PIDS[p];
+      pidVals[p]=f?[f[0],(Math.round(f[2](d)*100)/100)+' '+f[1]]:['PID 0x'+p.toString(16).toUpperCase(),d.map(x=>x.toString(16).padStart(2,'0')).join(' ')]; } }
+    if(--left===0){
+      drawPids();
+      const now=Date.now();
+      if(!lastAutoDtcPoll || now-lastAutoDtcPoll>=30000){
+        lastAutoDtcPoll=now;
+        pollDtcStatus(()=>setTimeout(pollPids,500));
+      } else setTimeout(pollPids,500);
+    }
+  },false,true));
+}
+function drawPids(){
+  drawHondaGear();
+  const k=Object.keys(pidVals).map(Number).sort((a,b)=>a-b);
+  $('pidRows').innerHTML=k.map(p=>{
+    const pidHex=p.toString(16).toUpperCase().padStart(2,'0');
+    const valueText=String(pidVals[p][1]), match=valueText.match(/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)/);
+    const numeric=match?match[0]:'';
+    const editable=numeric?`<b data-field-id="OBD01:${pidHex}" data-field-label="${esc(pidVals[p][0])}" data-value="${esc(numeric)}" title="Double-tap in Write Mode to stage a proposed value">${esc(valueText)}</b>`:`<b>${esc(valueText)}</b>`;
+    return `<tr><td>0x${pidHex}</td><td>${esc(pidVals[p][0])}</td><td>${editable}</td></tr>`;
+  }).join('')||'<tr><td colspan="3" style="color:#8b949e">Waiting for engine / ECU telemetry…</td></tr>';
+  const badge=$('liveSensorState');
+  if(badge){
+    const running=engineState==='RUN';
+    badge.textContent=k.length?'LIVE · '+k.length+' PARAMETERS':(running?'ENGINE RUNNING · WAITING FOR ECU DATA':engineState==='OFF'?'ENGINE OFF':'IGNITION ON · WAITING FOR DATA');
+    badge.className='live-badge'+(k.length?'':' off');
+  }
+}
+function togglePids(){
+  /* Kept as a guarded UI hook for future controls; never bypass the ARM/key gate. */
+  if(pidOn){ stopAutoPids('monitor stopped by operator'); return; }
+  syncAutoPids();
+  if(!pidOn) diagLog('Automatic PID polling requires key position II and an active F-CAN ARM window.');
+}
+/* Read / write a value by identifier, IO control and routines (ISO 14229-1 services 22/2E/2F/31).
+   Honda does not publish DIDs; find them with reads and captures. Writes need confirmation. */
+function didOp(kind){
+  const e=ecus[$('wrEcu').value]; if(!e){ diagLog('Pick a controller first (run a scan).'); return; }
+  const did=$('wrDid').value.trim().toUpperCase(), data=$('wrData').value.replace(/\s+/g,'').toUpperCase();
+  if(kind!=='session' && !/^[0-9A-F]{4}$/.test(did)){ diagLog('DID / routine must be 4 hex digits.'); return; }
+  if(data && !/^([0-9A-F]{2})+$/.test(data)){ diagLog('Data must be hex bytes.'); return; }
+  const req={read:'22'+did, write:'2E'+did+data, io:'2F'+did+'03'+data, ioret:'2F'+did+'00',
+             routine:'3101'+did+data, session:'1003'}[kind];
+  if(kind==='write' && !data){ diagLog('Write needs data.'); return; }
+  if(req.length/2>64){ diagLog('Request too long (64 bytes max).'); return; }
+  const ro=(kind==='read'||kind==='session');
+  if(!ro && !confirm('Send '+req+' to '+e.tx+'?\nThis changes the controller ('+({write:'stored value',io:'output override',ioret:'return output to ECU',routine:'routine start'})[kind]+').')) return;
+  $('wrOut').textContent='→ '+e.tx+' '+req;
+  diagReq(e,req,(hex,why)=>{
+    let txt=hex?hexBytes(hex).map(x=>x.toString(16).padStart(2,'0').toUpperCase()).join(' '):(why||'no answer');
+    if(hex && kind==='read'){ const b=hexBytes(hex).slice(3); const a=b.filter(c=>c>=0x20&&c<0x7F).map(c=>String.fromCharCode(c)).join('');
+      if(a.length===b.length&&a.length) txt+='  "'+a+'"'; }
+    $('wrOut').textContent='← '+e.rx+' '+txt; diagLog(e.tx+' '+req+' → '+txt);
+  }, !ro);
+}
+function fillRstEcus(){ $('wrEcu').innerHTML=Object.keys(ecus).map(r=>`<option value="${esc(r)}">${esc(ecuLabel(ecus[r]))}</option>`).join(''); $('rstEcu').innerHTML=Object.keys(ecus).map(r=>`<option value="${esc(r)}">${esc(ecuLabel(ecus[r]))}</option>`).join(''); }
+function onEcu(t){
+  const f=t.split(',');
+  const tagged=(f[1]==='F'||f[1]==='B');
+  const ei=tagged?2:1, ev=f[ei]||'';
+  if(ev==='FOUND'){
+    const base=ei+1, tx=f[base]||'', rx=f[base+1]||'';
+    if(!tx||!rx){ diagLog('Malformed ECU result: '+t); return; }
+    ecus[rx]={tx,rx,fmt:tx.length>3?'E':'S',reply:f[base+2]||'',info:(ecus[rx]&&ecus[rx].info)||{}};
+    drawEcus(); fillRstEcus(); diagLog(t); return;
+  }
+  if(ev==='DONE'){ diagLog('ECU scan finished: '+(f[ei+1]||'0')+' controller(s) answered'); drawEcus(); return; }
+  diagLog(t);
+}
+
+/* ── message handler ── */
+function onMsg(m){
+  if(m.type==='sigstates'){ if(m.reset) slRows={}; (m.list||[]).forEach(r=>{ slRows[r[0]]=r; }); drawSl(); return; }
+  if(m.type==='sigstate'){ slRows[m.id]=[m.id,m.name,m.state,m.frames,m.match,m.miss,m.dlc]; drawSl(); return; }
+  if(m.type==='events_reset'){ eventRows.length=0; drawEvents(); return; }
+  if(m.type==='event'){
+    const i=eventRows.findIndex(e=>e.id===m.id);
+    if(i>=0) eventRows[i]=m; else eventRows.push(m);
+    drawEvents(); return;
+  }
+  if(m.type==='stats'){ onStats(String(m.message||''), m.bus); return; }
+  if(m.type==='dec'){
+    const now=Date.now();
+    for(const r of (m.l||[])){ dec$[r[0]+'.'+r[2]]={id:r[0],msg:r[1],sig:r[2],v:r[3],u:r[4]||'',t:r[5]||'',ts:now};
+      if(r[1]==='GEARBOX_AUTO'&&r[2]==='TRANS_TARGET_GEAR'&&(($('gearLedSrc')||{}).value==='bcast')){ const l=$('gearLedLast'); if(l) l.textContent=(r[5]||r[3])+' (0x1A3)'; } }
+    const b=$('decState'); if(b){ b.textContent='LIVE'; b.className='live-badge'; }
+    drawDec(); return;
+  }
+  if(m.type==='frames'){
+    capFeed(m.l||[]);
+    if(Array.isArray(m.drop)){ const ci=$('capIntegrity'); if(ci){ const bad=(m.drop[0]||0)+(m.drop[1]||0)+(m.over||0);
+      ci.style.color=bad?'#f85149':'#3fb950';
+      ci.textContent=bad?('CAPTURE LOSS: dropped F-CAN '+m.drop[0]+' · B-CAN '+m.drop[1]+' frames; '+(m.over||0)+' frames from IDs beyond the 192-ID table (SavvyCAN TCP 23 still receives every frame)')
+        :('Capture integrity: no frame dropped on either bus · '+(m.total||0)+' frames captured'); } }
+    (m.l||[]).forEach(r=>{ const id=r[0], hex=r[3]||'';
+      const s=frm$[id]||(frm$[id]={n:0,rate:0,ts:0,bytes:[],prev:[],dlc:0,label:'',bus:0});
+      s.prev=[...s.bytes]; s.n=r[4]; s.rate=r[5]; s.ts=Date.now(); s.dlc=r[2]; s.bus=r[1];
+      s.bytes=Array.from({length:8},(_,i)=>hex.length>=(i+1)*2?hex.substr(i*2,2):'--');
+      if(r[6]) s.label=r[6];
+      else if(prof$[id]&&prof$[id].label) s.label=prof$[id].label;
+      if(r[1]===0&&id==='17C'&&hex.length>=2) bcPedal=parseInt(hex.substr(0,2),16);
+    });
+    busFps=m.fps||[0,0]; busBps=m.bps||[0,0]; if(m.bitrate) lastBitrate=m.bitrate;
+    $('statusBar').textContent=(m.locked?'🔒 Locked ':'🔍 Scanning ')+(m.bitrate?m.bitrate+' bps':'—')+' | Frames: '+(m.total||0);
+    return;
+  }
+  if(m.type==='veh'){
+    const previous=engineState;
+    engineState=m.state||'OFF'; veh=m;
+    /* End the live session when the ignition leaves position II. */
+    if((previous==='RUN'||previous==='ON') && engineState!=='RUN' && engineState!=='ON'){
+      pidVals={}; Object.keys(pid$).forEach(k=>delete pid$[k]);
+      Object.keys(seen$).forEach(k=>delete seen$[k]);
+      drawPids();
+    }
+    /* STM32 reports src=OBD for decoded responses; src=BCAST is the
+       candidate Honda RPM/speed broadcast. No guessed sensor values. */
+    const on=(m.state==='ON'||m.state==='RUN');
+    if(on && m.src==='BCAST'){ onMsg({type:'pid',pid:'0C',value:m.rpm}); onMsg({type:'pid',pid:'0D',value:m.spd}); }
+    drawPids(); drawVeh(); syncAutoPids(); return;
+  }
+  if(m.type==='auth'){ authOk=!!m.ok; if(!authOk) diagLog('Command channel login failed.'); return; }
+  if(m.type==='diag'){ onDiag(String(m.message||'')); return; }
+  if(m.type==='status'){
+    $('statusBar').textContent=(m.locked?'🔒 Locked ':'🔍 Scanning ')
+      +(m.bitrate?(lastBitrate=m.bitrate)+' bps':'—')
+      +' | Frames: '+(m.frames||0)
+      +(m.dwell?' | Dwell: '+m.dwell+' ms':'');
+    return;
+  }
+  if(m.type==='frame'){
+    const id=m.id; if(!id) return;
+    const s=frm$[id]||(frm$[id]={n:0,rate:0,ts:0,bytes:[],prev:[],dlc:0,label:''});
+    s.prev=[...s.bytes]; s.n++; s.ts=Date.now(); s.dlc=m.dlc;
+    const hex=(m.data||'').replace(/[^0-9a-fA-F]/g,'');
+    s.bytes=Array.from({length:8},(_,i)=>hex.length>=(i+1)*2?hex.substr(i*2,2).toUpperCase():'--');
+    if(prof$[id]) s.rate=prof$[id].rate;
+    return;
+  }
+  if(m.type==='pid'){
+    const pid=(m.pid||'').toUpperCase(), val=parseFloat(m.value);
+    if(isNaN(val)) return;
+    const pidNo=parseInt(pid,16);
+    if(Number.isFinite(pidNo)){
+      const meta=PIDS[pidNo];
+      const label=m.label|| (meta&&meta[0]) || ('PID 0x'+pid);
+      const unit=m.unit|| (meta&&meta[1]) || '';
+      pidVals[pidNo]=[label,(Math.round(val*100)/100)+' '+unit];
+      drawPids();
+    }
+    if(!pid$[pid]) pid$[pid]=[];
+    pid$[pid].push({ts:Date.now(),v:val});
+    if(pid$[pid].length>300) pid$[pid].shift();
+    seen$[pid]=Date.now();
+    updCard(pid,val);
+    chkAlerts(pid,val); updAlerts();
+    if(pid==='0C'&&pid$['11']&&pid$['11'].length){
+      const thr=pid$['11'][pid$['11'].length-1].v;
+      scat.push({thr,rpm:val}); if(scat.length>500) scat.shift();
+    }
+    return;
+  }
+  if(m.type==='profile'){
+    const id=(m.id||'').toUpperCase();
+    prof$[id]={dlc:m.dlc,rate:parseFloat(m.rate)||0,label:m.label||''};
+    if(frm$[id]) frm$[id].label=m.label||'';
+    if(frm$[id]) frm$[id].rate=parseFloat(m.rate)||0;
+    return;
+  }
+  if(m.type==='sig'){
+    const id=(m.id||'').toUpperCase(), b=m.byte||0, k=id+':'+b;
+    const s=sig$[k]||(sig$[k]={last:'',min:'',max:'',rate:0,label:'',hist:[],byte:b});
+    s.last=m.last||''; s.min=m.min||''; s.max=m.max||'';
+    s.rate=parseFloat(m.rate)||0; s.label=m.label||''; s.byte=b;
+    const n=parseInt(m.last,16);
+    if(!isNaN(n)){s.hist.push(n);if(s.hist.length>20)s.hist.shift();}
+    return;
+  }
+  if(m.type==='tx'){ $('txStat').textContent='STM32: '+(m.message||''); return; }
+  if(m.type==='stm32_progress'){ handleFwProgress(m); return; }
+  if(m.type==='label_update'){
+    const id=m.id, lbl=m.label||'';
+    if(frm$[id]) frm$[id].label=lbl;
+    if(prof$[id]) prof$[id].label=lbl;
+    return;
+  }
+}
+
+/* ── remote engine start helpers ── */
+function doStartCfg(){
+  let to=Math.round((parseFloat(document.getElementById('rsTo').value)||2)*1000);
+  if(to<500)to=500; if(to>10000)to=10000;
+  wsSend({op:'startinputs',neutral:document.getElementById('rsNeutral').checked?1:0,brake:document.getElementById('rsBrake').checked?1:0,immob:document.getElementById('rsImmob').checked?1:0});
+  wsSend({op:'startcfg',timeout:to,armed:0,neutral:1,brake:1,immob:1,rpm:400});
+  diagLog('Remote-start safety applied (timeout '+(to/1000)+' s).');
+}
+function doStart(){   /* single click, works in read-only and write mode */
+  wsSend({op:'startinputs',neutral:document.getElementById('rsNeutral').checked?1:0,brake:document.getElementById('rsBrake').checked?1:0,immob:document.getElementById('rsImmob').checked?1:0});
+  wsSend({op:'start'});
+  diagLog('→ remote START requested on '+curBus);
+}
+
+/* ── websocket ── */
+function connect(){
+  $('statusBar').textContent='Connecting…';
+  try{ sock=new WebSocket('ws://'+location.hostname+':81/'); }
+  catch(e){ $('statusBar').textContent='WS error: '+e.message; setTimeout(connect,2000); return; }
+  sock.onopen =()=>{
+    $('statusBar').textContent='Connected — waiting for STM32…';
+    authOk=true;                 /* USB link to the host is the only gate */
+    gearLedToggle();             /* re-apply the gear-LED source on every connect */
+    canCmd('WRITE,?');           /* follow the board's write/read-only state */
+    devCmd('STATUS');            /* boot target / detection state */
+    abRefresh();
+  };
+  sock.onclose=()=>{ $('statusBar').textContent='Disconnected — reconnecting…'; setTimeout(connect,1500); };
+  sock.onerror=()=>$('statusBar').textContent='WebSocket error';
+  sock.onmessage=e=>{ window._wsMsgCount=(window._wsMsgCount||0)+1; try{onMsg(JSON.parse(e.data));}catch(ex){window._wsParseErr=(window._wsParseErr||0)+1;} if(window._dbgBar)window._dbgBar.textContent='WS msgs:'+window._wsMsgCount+' errs:'+(window._wsParseErr||0)+' last:'+(e.data||'').substring(0,60); };
+}
+
+/* ── 1s redraw loop ── */
+setInterval(()=>{ drawRpm(); drawTemp(); drawScat(); updQuality(); updCAN(); updSigs(); }, 1000);
+window.addEventListener('resize',()=>{ drawRpm(); drawTemp(); drawScat(); });
+connect();
+/* Sidebar drawer navigation: swipe-from-left-edge to open, tap overlay to close.
+   Same smooth scroll + active item tracking as before. */
+(function initNavigation(){
+  const nav=document.getElementById('sideNav');
+  const overlay=document.getElementById('navOverlay');
+  const hint=document.getElementById('navSwipeHint');
+  if(!nav) return;
+  const links=[...nav.querySelectorAll('a[href^="#"]')];
+
+  /* ── open / close helpers ── */
+  function openNav(){ nav.classList.add('open'); overlay.classList.add('open'); if(hint) hint.style.opacity='0'; }
+  function closeNav(){ nav.classList.remove('open'); overlay.classList.remove('open'); if(hint) hint.style.opacity='.6'; }
+  overlay.addEventListener('click', closeNav);
+
+  /* ── swipe-from-left-edge gesture ── */
+  let touchStartX=0, touchStartY=0, swiping=false, navDrag=false, locked=false;
+  const EDGE=35, THRESHOLD=50;
+
+  document.addEventListener('touchstart', function(e){
+    const t=e.touches[0];
+    touchStartX=t.clientX; touchStartY=t.clientY;
+    locked=false;
+    swiping=(touchStartX < EDGE && !nav.classList.contains('open'));
+    navDrag=(nav.classList.contains('open'));
+  }, {passive:true});
+
+  /* MUST be non-passive so preventDefault() stops browser back-swipe */
+  document.addEventListener('touchmove', function(e){
+    if(!swiping && !navDrag) return;
+    const dx=e.touches[0].clientX - touchStartX;
+    const dy=e.touches[0].clientY - touchStartY;
+    if(!locked){
+      if(Math.abs(dy) > Math.abs(dx)*1.5){ swiping=false; navDrag=false; return; }
+      if(Math.abs(dx) > 10) locked=true; else return;
+    }
+    /* Prevent browser back/forward navigation gesture */
+    e.preventDefault();
+    if(swiping){
+      const pct=Math.min(dx/280, 1);
+      nav.style.transition='none';
+      nav.style.transform='translateX('+Math.min(0, -280+dx)+'px)';
+      overlay.style.transition='none';
+      overlay.style.opacity=String(pct*0.55);
+      overlay.style.pointerEvents='auto';
+    }
+    if(navDrag && dx < -10){
+      const off=Math.max(dx, -280);
+      nav.style.transition='none';
+      nav.style.transform='translateX('+off+'px)';
+      overlay.style.transition='none';
+      overlay.style.opacity=String(Math.max(0, (280+off)/280*0.55));
+    }
+  }, {passive:false});
+
+  document.addEventListener('touchend', function(e){
+    const dx=e.changedTouches[0].clientX - touchStartX;
+    nav.style.transition=''; nav.style.transform='';
+    overlay.style.transition=''; overlay.style.opacity='';
+    overlay.style.pointerEvents='';
+    if(swiping && dx > THRESHOLD) openNav();
+    else if(navDrag && dx < -THRESHOLD) closeNav();
+    else if(swiping) closeNav();
+    swiping=false; navDrag=false; locked=false;
+  }, {passive:true});
+
+  /* ── active item tracking (scroll spy) ── */
+  function mark(){
+    const y=window.scrollY+120;
+    let current='#top';
+    links.forEach(a=>{const el=document.querySelector(a.getAttribute('href'));if(el&&el.offsetTop<=y)current=a.getAttribute('href');});
+    links.forEach(a=>a.classList.toggle('active',a.getAttribute('href')===current));
+  }
+
+  /* ── nav link clicks: scroll + close drawer ── */
+  links.forEach(a=>a.addEventListener('click',e=>{
+    const target=document.querySelector(a.getAttribute('href'));
+    if(target){e.preventDefault();target.scrollIntoView({behavior:'smooth',block:'start'});history.replaceState(null,'',a.getAttribute('href'));}
+    closeNav();
+  }));
+
+  /* Also close on download links (non-hash hrefs) */
+  [...nav.querySelectorAll('a:not([href^="#"])')].forEach(a=>a.addEventListener('click',()=>{ closeNav(); }));
+
+  window.addEventListener('scroll',mark,{passive:true});mark();
+})();
+</script>
+<button id="backTop" type="button" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="Back to dashboard top">↑ Back to top</button>
+
+<!-- ══ FULL WIDTH: Firmware Update ══ -->
+<div class="card full" id="fwCard">
+  <div class="card-head">
+    <span class="card-title">⚡ Firmware Update</span>
+    <span class="card-sub" id="fwStatus">Ready</span>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:4px">
+
+    <!-- ESP32 update -->
+    <div style="background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:12px">
+      <div style="font-size:.78rem;font-weight:700;color:#79c0ff;margin-bottom:6px">ESP32 Dashboard Firmware</div>
+      <div style="font-size:.68rem;color:#8b949e;margin-bottom:8px">Upload a new <code style="background:#21262d;padding:1px 4px;border-radius:3px">.bin</code> built with PlatformIO. The ESP32 will reboot automatically after flashing.</div>
+      <div id="esp32DropZone" style="border:2px dashed #30363d;border-radius:6px;padding:14px;text-align:center;cursor:pointer;transition:border-color .2s" ondragover="event.preventDefault();this.style.borderColor='#58a6ff'" ondragleave="this.style.borderColor='#30363d'" ondrop="dropFw(event,'esp32')">
+        <div style="font-size:.72rem;color:#8b949e">Drag &amp; drop <b>.bin</b> here, or</div>
+        <label style="margin-top:6px;display:inline-block">
+          <input type="file" id="esp32File" accept=".bin" style="display:none" onchange="selectFw('esp32')">
+          <span class="btn btn-sm" style="margin:0" onclick="document.getElementById('esp32File').click()">Browse</span>
+        </label>
+        <div id="esp32FileName" style="font-size:.68rem;color:#8b949e;margin-top:4px">No file selected</div>
+      </div>
+      <div style="margin-top:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span style="font-size:.68rem;color:#8b949e" id="esp32Pct">0%</span>
+          <button class="btn btn-sm" onclick="flashESP32()" id="esp32Btn" disabled>Flash ESP32</button>
+        </div>
+        <div style="height:6px;background:#21262d;border-radius:3px;overflow:hidden">
+          <div id="esp32Bar" style="height:6px;width:0%;background:#58a6ff;border-radius:3px;transition:width .2s"></div>
+        </div>
+        <div id="esp32Msg" style="font-size:.65rem;color:#8b949e;margin-top:4px;min-height:1em"></div>
+      </div>
+    </div>
+
+    <!-- STM32 update -->
+    <div style="background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:12px">
+      <div style="font-size:.78rem;font-weight:700;color:#e3b341;margin-bottom:6px">STM32F407 Firmware</div>
+      <div style="font-size:.68rem;color:#8b949e;margin-bottom:4px">Upload a <code style="background:#21262d;padding:1px 4px;border-radius:3px">.bin</code> built with <code style="background:#21262d;padding:1px 4px;border-radius:3px">make firmware</code>. Application and ROM loader share USART3 PB10/PB11 on GPIO16/17. <b style="color:#f85149">Hardware prerequisite:</b> fit MB997 SB19 ON so PB2/BOOT1 is held low. Not verified on a physical board.</div>
+      <div style="font-size:.65rem;background:#1c2128;border:1px solid #30363d;border-radius:4px;padding:6px;margin-bottom:8px;color:#8b949e">
+        <b style="color:#e3b341">⚠ Wiring required:</b> ESP32 GPIO26 → BOOT0 (P2-21) &nbsp;|&nbsp; GPIO25 → NRST (P1-6, open-drain) &nbsp;|&nbsp; STM32 PB10/USART3_TX → GPIO16/RX &nbsp;|&nbsp; GPIO17/TX → PB11/USART3_RX. <b>Fit SB19 ON (BOOT1 low); no ESP32 PB2 wire.</b>
+      </div>
+      <div id="stm32DropZone" style="border:2px dashed #30363d;border-radius:6px;padding:14px;text-align:center;cursor:pointer;transition:border-color .2s" ondragover="event.preventDefault();this.style.borderColor='#e3b341'" ondragleave="this.style.borderColor='#30363d'" ondrop="dropFw(event,'stm32')">
+        <div style="font-size:.72rem;color:#8b949e">Drag &amp; drop <b>.bin</b> here, or</div>
+        <label style="margin-top:6px;display:inline-block">
+          <input type="file" id="stm32File" accept=".bin" style="display:none" onchange="selectFw('stm32')">
+          <span class="btn btn-sm" style="margin:0;background:#2d2008;border-color:#e3b341;color:#e3b341" onclick="document.getElementById('stm32File').click()">Browse</span>
+        </label>
+        <div id="stm32FileName" style="font-size:.68rem;color:#8b949e;margin-top:4px">No file selected</div>
+      </div>
+      <div style="margin-top:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span style="font-size:.68rem;color:#8b949e" id="stm32Pct">0%</span>
+          <button class="btn btn-sm" onclick="flashSTM32()" id="stm32Btn" disabled style="background:#2d2008;border-color:#e3b341;color:#e3b341">Flash STM32</button>
+        </div>
+        <div style="height:6px;background:#21262d;border-radius:3px;overflow:hidden">
+          <div id="stm32Bar" style="height:6px;width:0%;background:#e3b341;border-radius:3px;transition:width .2s"></div>
+        </div>
+        <div id="stm32Msg" style="font-size:.65rem;color:#8b949e;margin-top:4px;min-height:1em"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════
+   FIRMWARE UPDATE
+   ═══════════════════════════════════════════════ */
+const fwFiles={esp32:null,stm32:null};
+
+function selectFw(target){
+  const f=document.getElementById(target+'File').files[0];
+  if(!f) return;
+  fwFiles[target]=f;
+  document.getElementById(target+'FileName').textContent=f.name+' ('+Math.round(f.size/1024)+' KB)';
+  document.getElementById(target+'Btn').disabled=false;
+}
+function dropFw(ev,target){
+  event.preventDefault();
+  document.getElementById(target+'DropZone').style.borderColor='#30363d';
+  const f=ev.dataTransfer.files[0];
+  if(!f||!f.name.endsWith('.bin')){
+    document.getElementById(target+'Msg').textContent='Only .bin files accepted.'; return;
+  }
+  fwFiles[target]=f;
+  document.getElementById(target+'FileName').textContent=f.name+' ('+Math.round(f.size/1024)+' KB)';
+  document.getElementById(target+'Btn').disabled=false;
+  document.getElementById(target+'Msg').textContent='';
+}
+
+function flashESP32(){
+  const f=fwFiles.esp32; if(!f) return;
+  document.getElementById('esp32Btn').disabled=true;
+  document.getElementById('esp32Msg').textContent='Uploading…';
+  const xhr=new XMLHttpRequest();
+  xhr.open('POST','/update',true);
+  xhr.upload.onprogress=e=>{
+    if(e.lengthComputable){
+      const pct=Math.round(e.loaded/e.total*100);
+      document.getElementById('esp32Bar').style.width=pct+'%';
+      document.getElementById('esp32Pct').textContent=pct+'%';
+    }
+  };
+  xhr.onload=()=>{
+    if(xhr.status===200){
+      document.getElementById('esp32Msg').style.color='#56d364';
+      document.getElementById('esp32Msg').textContent='✓ Flash OK — ESP32 rebooting…';
+      document.getElementById('esp32Bar').style.background='#56d364';
+    } else {
+      document.getElementById('esp32Msg').style.color='#f85149';
+      document.getElementById('esp32Msg').textContent='✗ Error: '+xhr.responseText;
+      document.getElementById('esp32Btn').disabled=false;
+    }
+  };
+  xhr.onerror=()=>{
+    document.getElementById('esp32Msg').style.color='#f85149';
+    document.getElementById('esp32Msg').textContent='✗ Upload failed — connection lost (normal after reboot)';
+    document.getElementById('esp32Btn').disabled=false;
+  };
+  const fd=new FormData(); fd.append('firmware',f,f.name);
+  xhr.send(fd);
+}
+
+function flashSTM32(){
+  const f=fwFiles.stm32; if(!f) return;
+  document.getElementById('stm32Btn').disabled=true;
+  document.getElementById('stm32Msg').textContent='Uploading binary to ESP32…';
+  document.getElementById('stm32Bar').style.width='5%';
+  const xhr=new XMLHttpRequest();
+  xhr.open('POST','/update-stm32',true);
+  xhr.upload.onprogress=e=>{
+    if(e.lengthComputable){
+      const pct=Math.round(e.loaded/e.total*50); // upload = 0-50%
+      document.getElementById('stm32Bar').style.width=pct+'%';
+      document.getElementById('stm32Pct').textContent=pct+'%';
+    }
+  };
+  xhr.onload=()=>{
+    if(xhr.status===200){
+      document.getElementById('stm32Msg').style.color='#56d364';
+      document.getElementById('stm32Msg').textContent='✓ '+xhr.responseText;
+      document.getElementById('stm32Bar').style.width='100%';
+      document.getElementById('stm32Bar').style.background='#56d364';
+      document.getElementById('stm32Pct').textContent='100%';
+    } else {
+      document.getElementById('stm32Msg').style.color='#f85149';
+      document.getElementById('stm32Msg').textContent='✗ Error: '+xhr.responseText;
+      document.getElementById('stm32Btn').disabled=false;
+    }
+  };
+  xhr.onerror=()=>{
+    document.getElementById('stm32Msg').style.color='#f85149';
+    document.getElementById('stm32Msg').textContent='✗ Connection lost during upload.';
+    document.getElementById('stm32Btn').disabled=false;
+  };
+  // STM32 flash progress arrives as WebSocket stm32_progress messages
+  const fd=new FormData(); fd.append('firmware',f,f.name);
+  xhr.send(fd);
+}
+
+/* Listen for stm32_progress messages from WebSocket */
+function handleFwProgress(m){
+  if(m.type!=='stm32_progress') return;
+  const pct=50+Math.round((m.pct||0)/2); // flashing = 50-100%
+  document.getElementById('stm32Bar').style.width=pct+'%';
+  document.getElementById('stm32Pct').textContent=pct+'%';
+  document.getElementById('stm32Msg').textContent=m.msg||'';
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ *  EDIT DASH LAYOUT — iOS-style wiggle, show/hide, drag-and-drop reorder
+ * ══════════════════════════════════════════════════════════════════════════ */
+(function(){
+  /* ── Panel registry ── */
+  const PANEL_IDS=[
+    'top-cards-wrap','systemsCard','decSignals','stateCapture',
+    'liveEngineSensors','events','main-grid','canAnalyzer',
+    'signalExplorer','sigLearn','settings','canAbilities',
+    'controllers','diagnostics','operatingMode','fwCard'
+  ];
+  const PANEL_NAMES={
+    'top-cards-wrap':'Top Metric Cards','systemsCard':'Vehicle Systems',
+    'decSignals':'Decoded Signals','stateCapture':'State Capture',
+    'liveEngineSensors':'Live Engine Sensors','events':'Fault Events',
+    'main-grid':'Charts Grid','canAnalyzer':'CAN Analyzer',
+    'signalExplorer':'Signal Explorer','sigLearn':'Signal Learning',
+    'settings':'Settings','canAbilities':'bxCAN Abilities',
+    'controllers':'Controllers','diagnostics':'Diagnostics',
+    'operatingMode':'Operating Mode','fwCard':'Firmware Update'
+  };
+
+  let editActive=false;
+
+  /* ── Load saved layout ── */
+  function loadLayout(){
+    try{
+      const h=JSON.parse(localStorage.getItem('dashHidden')||'[]');
+      h.forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
+      const ord=JSON.parse(localStorage.getItem('dashOrder')||'[]');
+      if(ord.length){
+        const parent=document.getElementById(PANEL_IDS[0])?.parentNode;
+        if(parent){
+          /* anchor = the element before our first panel */
+          const refNode=document.getElementById('vehBar');
+          ord.forEach(id=>{const el=document.getElementById(id);if(el)parent.appendChild(el);});
+        }
+      }
+    }catch(e){}
+  }
+
+  /* ── Wrap panels so we can control them ── */
+  function initPanels(){
+    /* Wrap top-cards div */
+    const tc=document.querySelector('.top-cards');
+    if(tc && !tc.id) tc.id='top-cards-wrap';
+    /* Wrap main grid */
+    const mg=document.querySelector('.main');
+    if(mg && !mg.id) mg.id='main-grid';
+    /* Add dash-panel class + edit bar to each panel */
+    PANEL_IDS.forEach(id=>{
+      const el=document.getElementById(id);
+      if(!el) return;
+      el.classList.add('dash-panel');
+      if(el.querySelector('.panel-edit-bar')) return;
+      const bar=document.createElement('div');
+      bar.className='panel-edit-bar';
+      bar.innerHTML='<button class="panel-drag-handle" title="Drag to reorder">⠿</button>'
+        +'<button class="panel-eye-btn" title="Show / Hide" data-pid="'+id+'">👁</button>';
+      el.style.position='relative';
+      el.insertBefore(bar,el.firstChild);
+    });
+  }
+
+  /* ── Enter edit mode ── */
+  window.enterEditMode=function(){
+    closeNav();
+    editActive=true;
+    document.body.classList.add('edit-layout-mode');
+    const hidden=getHidden();
+    PANEL_IDS.forEach(id=>{
+      const el=document.getElementById(id);
+      if(!el) return;
+      el.style.display='';
+      if(hidden.includes(id)){el.classList.add('panel-hidden');el.classList.remove('panel-visible');}
+      else{el.classList.add('panel-visible');el.classList.remove('panel-hidden');}
+      /* update eye icon */
+      const btn=el.querySelector('.panel-eye-btn');
+      if(btn) btn.textContent=hidden.includes(id)?'◻':'👁';
+    });
+    initDragDrop();
+    window.scrollTo({top:0,behavior:'smooth'});
+  };
+
+  /* ── Finish edit mode ── */
+  window.finishEditMode=function(){
+    editActive=false;
+    document.body.classList.remove('edit-layout-mode');
+    const hidden=[];
+    PANEL_IDS.forEach(id=>{
+      const el=document.getElementById(id);
+      if(!el) return;
+      if(el.classList.contains('panel-hidden')){hidden.push(id);el.style.display='none';}
+      else{el.style.display='';}
+      el.classList.remove('panel-hidden','panel-visible','drag-over');
+    });
+    try{localStorage.setItem('dashHidden',JSON.stringify(hidden));}catch(e){}
+    /* Save order */
+    const parent=document.getElementById(PANEL_IDS[0])?.parentNode;
+    if(parent){
+      const order=[...parent.querySelectorAll('.dash-panel')].map(e=>e.id).filter(id=>PANEL_IDS.includes(id));
+      try{localStorage.setItem('dashOrder',JSON.stringify(order));}catch(e){}
+    }
+  };
+
+  function getHidden(){
+    try{return JSON.parse(localStorage.getItem('dashHidden')||'[]');}catch(e){return [];}
+  }
+
+  /* ── Eye toggle clicks ── */
+  document.addEventListener('click',function(e){
+    if(!editActive) return;
+    const btn=e.target.closest('.panel-eye-btn');
+    if(!btn) return;
+    const pid=btn.dataset.pid;
+    const el=document.getElementById(pid);
+    if(!el) return;
+    if(el.classList.contains('panel-hidden')){
+      el.classList.remove('panel-hidden');el.classList.add('panel-visible');btn.textContent='👁';
+    }else{
+      el.classList.remove('panel-visible');el.classList.add('panel-hidden');btn.textContent='◻';
+    }
+  });
+
+  /* ── Drag and drop ── */
+  let dragEl=null;
+  function initDragDrop(){
+    document.querySelectorAll('.panel-drag-handle').forEach(h=>{
+      h.removeEventListener('pointerdown',dragStart);
+      h.addEventListener('pointerdown',dragStart);
+    });
+  }
+  function dragStart(e){
+    if(!editActive) return;
+    e.preventDefault();
+    dragEl=e.target.closest('.dash-panel');
+    if(!dragEl) return;
+    dragEl.style.opacity='.6';
+    document.addEventListener('pointermove',dragMove);
+    document.addEventListener('pointerup',dragEnd);
+  }
+  function dragMove(e){
+    if(!dragEl) return;
+    const els=document.querySelectorAll('.dash-panel');
+    els.forEach(el=>{
+      el.classList.remove('drag-over');
+      const r=el.getBoundingClientRect();
+      if(e.clientY>r.top && e.clientY<r.bottom && el!==dragEl){
+        el.classList.add('drag-over');
+      }
+    });
+  }
+  function dragEnd(e){
+    document.removeEventListener('pointermove',dragMove);
+    document.removeEventListener('pointerup',dragEnd);
+    if(!dragEl) return;
+    dragEl.style.opacity='';
+    const target=document.querySelector('.dash-panel.drag-over');
+    if(target && target!==dragEl){
+      const parent=dragEl.parentNode;
+      const allPanels=[...parent.querySelectorAll('.dash-panel')];
+      const dragIdx=allPanels.indexOf(dragEl);
+      const targetIdx=allPanels.indexOf(target);
+      if(dragIdx<targetIdx) target.after(dragEl);
+      else target.before(dragEl);
+    }
+    document.querySelectorAll('.dash-panel').forEach(el=>el.classList.remove('drag-over'));
+    dragEl=null;
+  }
+
+  /* ── Init on load ── */
+  document.addEventListener('DOMContentLoaded',function(){
+    initPanels();
+    loadLayout();
+  });
+  /* If DOM already loaded */
+  if(document.readyState!=='loading'){initPanels();loadLayout();}
+})();
+</script>
+<button id="editFinishBtn" onclick="finishEditMode()">✓ Finish Layout</button>
+<div id="wsDebugBar" style="position:fixed;bottom:0;left:0;right:0;background:#1a1a2e;color:#0f0;font:11px monospace;padding:4px 8px;z-index:9999;border-top:1px solid #333">WS debug: waiting…</div>
+<script>window._dbgBar=document.getElementById('wsDebugBar');setInterval(()=>{const s=window.sock;window._dbgBar.textContent='WS state:'+(s?['CONNECTING','OPEN','CLOSING','CLOSED'][s.readyState]:'null')+' msgs:'+(window._wsMsgCount||0)+' errs:'+(window._wsParseErr||0);},1000);</script>
+</body></html>

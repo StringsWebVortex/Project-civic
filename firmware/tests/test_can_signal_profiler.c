@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include "../Core/Inc/can_signal_profiler.h"
@@ -6,11 +7,27 @@
 
 static int emit_count = 0;
 static char last_line[128];
-static void test_write(const char *line)
+static bool test_write(const char *line)
 {
     emit_count++;
     strncpy(last_line, line, sizeof last_line - 1);
     last_line[sizeof last_line - 1] = '\0';
+    return true;
+}
+
+/* Output with room for only `room` lines per call; records every line. */
+static int room;
+static char seen_lines[4096][64];
+static int nseen;
+static bool limited_write(const char *line)
+{
+    if (room <= 0) return false;
+    room--;
+    assert(nseen < 4096);
+    strncpy(seen_lines[nseen], line, 63);
+    seen_lines[nseen][63] = '\0';
+    nseen++;
+    return true;
 }
 
 static can_capture_frame_t make_frame(uint32_t id, uint32_t ts, const uint8_t *data, uint8_t dlc)
@@ -124,6 +141,53 @@ int main(void)
         }
     }
 
+    /* ── Burst larger than the output: resumed, nothing lost or repeated ── */
+    {
+        can_profiler_init(&p);
+        for (uint32_t id = 0u; id < 100u; id++) {
+            uint8_t a[8] = {0, 1, 2, 3, 4, 5, 6, 7};
+            uint8_t b[8] = {9, 9, 9, 9, 9, 9, 9, 9};
+            can_capture_frame_t f = make_frame(0x100u + id, 10u, a, 8u);
+            can_profiler_update(&p, &f);
+            f = make_frame(0x100u + id, 20u, b, 8u);
+            can_profiler_update(&p, &f);
+        }
+        /* full output (unlimited) = 100 x (1 PROFILE + 8 SIG) = 900 lines */
+        nseen = 0; room = 1000000;
+        can_profiler_emit(&p, 100u, limited_write);
+        assert(nseen == 900);
+        char ref[900][64];
+        memcpy(ref, seen_lines, sizeof ref);
+        /* now only 7 lines fit per call */
+        room = 0;
+        can_profiler_emit(&p, 100u + PROFILER_EMIT_INTERVAL_MS, limited_write); /* room 0 */
+        assert(p.emit_active == 1u);
+        nseen = 0;
+        uint32_t t = 100u + PROFILER_EMIT_INTERVAL_MS;
+        for (int i = 0; i < 1000 && p.emit_active; i++) { room = 7; can_profiler_emit(&p, ++t, limited_write); }
+        assert(!p.emit_active);
+        assert(nseen == 900);
+        for (int i = 0; i < 900; i++) assert(strcmp(ref[i], seen_lines[i]) == 0);
+        assert(strncmp(seen_lines[899], "SIG,163,7,", 10) == 0);
+        /* next cycle only after the interval */
+        nseen = 0; room = 1000000;
+        can_profiler_emit(&p, t + 1u, limited_write);
+        assert(nseen == 0);
+    }
+
+    /* ── Full-range timestamp delta must not wrap elapsed to zero ─── */
+    {
+        can_profiler_t edge;
+        uint8_t d[] = {0x42};
+        can_profiler_init(&edge);
+        can_capture_frame_t f = make_frame(0x555u, 0u, d, 1u);
+        can_profiler_update(&edge, &f);
+        f.timestamp_ms = UINT32_MAX;
+        can_profiler_update(&edge, &f);
+        /* 2 frames over 2^32 ms rounds to 0 tenths of Hz. */
+        assert(edge.entries[0].rate_hz_x10 == 0u);
+    }
+
     /* ── NULL safety ──────────────────────────────────────────────── */
     can_profiler_init(NULL); /* no crash */
     can_profiler_update(NULL, NULL); /* no crash */
@@ -134,6 +198,25 @@ int main(void)
         can_profiler_update(&p2, NULL); /* no crash */
     }
 
+    /* ── bus tag, clock going backwards, DB byte labels on SIG lines ── */
+    {
+        can_profiler_t q;
+        can_profiler_init(&q);
+        can_profiler_set_bus(&q, 1u);
+        can_profiler_set_bus(NULL, 1u);                 /* no crash */
+        assert(q.bus == 1u);
+        uint8_t a[] = {0x03, 0x41, 0x0C, 0x10};
+        can_capture_frame_t f = make_frame(0x7E8u, 1000u, a, 4u);
+        can_profiler_update(&q, &f);
+        a[3] = 0x22; f = make_frame(0x7E8u, 500u, a, 4u);  /* earlier than prev and first */
+        can_profiler_update(&q, &f);
+        assert(q.entries[0].frame_count == 2u);
+        assert(q.entries[0].rate_hz_x10 == 20000u);       /* elapsed clamps to 1 ms */
+        emit_count = 0; last_line[0] = 0;
+        can_profiler_emit(&q, 5000u, test_write);
+        assert(emit_count >= 2);
+        assert(strstr(last_line, "SIG,7E8,3,") != NULL && strstr(last_line, ",A,1") != NULL);
+    }
     puts("PASS: can_signal_profiler — init, update, min/max, var_mask, rate, emit, table-full, nulls");
     return 0;
 }
