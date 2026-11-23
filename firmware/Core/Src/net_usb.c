@@ -57,8 +57,9 @@ static err_t linkoutput_fn(struct netif *netif, struct pbuf *p)
 {
     (void)netif;
     usbd_rndis_t *h = usbd_rndis_handle(&USBD_Device);
-    if (!h || !h->link_up || USBD_Device.dev_state != USBD_STATE_CONFIGURED)
+    if (!h || USBD_Device.dev_state != USBD_STATE_CONFIGURED)
         return ERR_USE;
+    /* usbd_rndis_transmit() enforces link_up before queuing an Ethernet frame. */
     if (p->tot_len > RNDIS_ETH_FRAME_MAX) return ERR_BUF;
 
     /* Wait for previous TX to finish (bounded) */
